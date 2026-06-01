@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Governed Data Product Console</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">DP</div>
+          <div>
+            <div class="brand-title">Governance Tool</div>
+            <div class="brand-subtitle">Data product intake</div>
+          </div>
+        </div>
+
+        <nav class="nav">
+          <button class="nav-item active" data-view="overview">Overview</button>
+          <button class="nav-item" data-view="new-request">New request</button>
+          <button class="nav-item" data-view="admin">Admin workflow</button>
+        </nav>
+
+        <div class="sidebar-panel">
+          <div class="sidebar-label">Current focus</div>
+          <div class="focus-value" id="sidebarStage">All products</div>
+          <div class="focus-meta" id="sidebarCount">0 visible</div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <section class="view active" id="overviewView">
+          <header class="hero">
+            <div>
+              <div class="eyebrow">Databricks app concept</div>
+              <h1>Governed Data Product Console</h1>
+              <p>
+                Capture new data product requests, track them through approvals, and publish governed
+                products to Databricks and Lynx.
+              </p>
+            </div>
+            <button class="primary-action" data-view="new-request">Create request</button>
+          </header>
+
+          <section class="metric-grid" aria-label="Portfolio metrics">
+            <article class="metric-card">
+              <span class="metric-label">Total products</span>
+              <strong id="metricTotal">0</strong>
+              <small>Captured in the intake pipeline</small>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label">In review</span>
+              <strong id="metricReview">0</strong>
+              <small>Waiting for governance or owner input</small>
+            </article>
+            <article class="metric-card danger">
+              <span class="metric-label">Blocked</span>
+              <strong id="metricBlocked">0</strong>
+              <small>Missing owner, source, or approval</small>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label">Ready or live</span>
+              <strong id="metricLive">0</strong>
+              <small>Publish or operate stage</small>
+            </article>
+          </section>
+
+          <section class="section-block">
+            <div class="section-header">
+              <div>
+                <h2>Process rail</h2>
+                <p>Select a stage to filter the dashboard below.</p>
+              </div>
+              <button class="ghost-button" id="clearStage">Clear stage</button>
+            </div>
+            <div class="rail" id="processRail" aria-label="Governance process stages"></div>
+          </section>
+
+          <section class="dashboard-grid">
+            <div class="panel large pipeline-panel">
+              <div class="panel-header">
+                <div>
+                  <h2 id="pipelineTitle">Product pipeline</h2>
+                  <p id="pipelineSubtitle">All captured products across the governance process.</p>
+                </div>
+                <div class="search-wrap">
+                  <input id="searchInput" type="search" placeholder="Search product, domain, owner" />
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Product</th>
+                      <th>Domain</th>
+                      <th>Type</th>
+                      <th>Platform</th>
+                      <th>Stage</th>
+                      <th>Days in stage</th>
+                      <th>Status</th>
+                      <th>Owner</th>
+                    </tr>
+                    <tr class="column-filter-row">
+                      <th><input class="column-filter" data-column="title" placeholder="Filter product" /></th>
+                      <th><input class="column-filter" data-column="domain" placeholder="Filter domain" /></th>
+                      <th><input class="column-filter" data-column="type" placeholder="Filter type" /></th>
+                      <th><input class="column-filter" data-column="platform" placeholder="Filter platform" /></th>
+                      <th><input class="column-filter" data-column="stage" placeholder="Filter stage" /></th>
+                      <th><input class="column-filter" data-column="daysInStage" placeholder="Days" /></th>
+                      <th><input class="column-filter" data-column="status" placeholder="Filter status" /></th>
+                      <th><input class="column-filter" data-column="owner" placeholder="Filter owner" /></th>
+                    </tr>
+                  </thead>
+                  <tbody id="productRows"></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        </section>
+
+        <section class="view" id="newRequestView">
+          <header class="page-header">
+            <div>
+              <div class="eyebrow">New request</div>
+              <h1>Create a data product request</h1>
+              <p>Capture the minimum information needed before governance, ownership, and build decisions.</p>
+            </div>
+            <button class="ghost-button" data-view="overview">Back to overview</button>
+          </header>
+
+          <form class="request-layout" id="requestForm">
+            <section class="form-panel">
+              <h2>Business context</h2>
+              <div class="form-grid">
+                <label>
+                  Product name
+                  <input name="title" required placeholder="Revenue KPI rebuild" />
+                </label>
+                <label>
+                  Domain
+                  <select name="domain" id="domainSelect" required></select>
+                </label>
+                <label>
+                  Business unit
+                  <select name="businessUnit" id="businessUnitSelect" required></select>
+                </label>
+                <label>
+                  Requester
+                  <input name="requester" required placeholder="Name" />
+                </label>
+                <label>
+                  Requester email
+                  <input name="requesterEmail" type="email" required pattern="^[^@\s]+@syngenta\.com$" placeholder="name@syngenta.com" />
+                </label>
+                <label class="wide">
+                  Business decision supported
+                  <textarea name="description" rows="4" required placeholder="Which business decision will this product support?"></textarea>
+                </label>
+                <label class="wide">
+                  Expected date
+                  <input name="expectedDate" type="date" required />
+                </label>
+              </div>
+            </section>
+
+            <section class="form-panel">
+              <h2>Product setup</h2>
+              <div class="form-grid">
+                <label>
+                  Product type
+                  <select name="productType" id="productTypeSelect" required></select>
+                </label>
+                <label>
+                  Target platform
+                  <select name="platform" id="platformSelect" required></select>
+                </label>
+                <label>
+                  Priority
+                  <select name="priority" id="prioritySelect" required></select>
+                </label>
+                <label>
+                  Scope
+                  <select name="scope" id="scopeSelect" required></select>
+                </label>
+                <label class="wide">
+                  Additional comments
+                  <textarea name="additionalComments" rows="3" placeholder="Anything else admins should know?"></textarea>
+                </label>
+              </div>
+            </section>
+
+            <aside class="summary-panel">
+              <h2>Ready to submit</h2>
+              <p>
+                The request starts in Intake. Later stages are locked until earlier required information is complete.
+              </p>
+              <div class="summary-rule">Requester email must use syngenta.com.</div>
+              <button class="primary-action full" type="submit">Submit request</button>
+              <button class="ghost-button full" type="reset">Clear form</button>
+            </aside>
+          </form>
+        </section>
+
+        <section class="view" id="adminView">
+          <header class="page-header">
+            <div>
+              <div class="eyebrow">Admin workflow</div>
+              <h1>Move products through governance</h1>
+              <p>Select a product, complete the required information for the current stage, and the system will advance it automatically.</p>
+            </div>
+            <button class="ghost-button" data-view="overview">Back to overview</button>
+          </header>
+
+          <section class="admin-layout">
+            <div class="admin-left-pane">
+              <div class="panel">
+                <div class="panel-header">
+                  <div>
+                    <h2>Select product</h2>
+                    <p>Only admins should use this screen.</p>
+                  </div>
+                </div>
+                <label>
+                  Product request
+                  <select id="adminProductSelect"></select>
+                </label>
+                <div class="admin-product-card" id="adminProductCard"></div>
+              </div>
+
+              <div class="panel admin-timeline">
+                <div class="panel-header compact">
+                  <div>
+                    <h2>Timeline</h2>
+                    <p>Created, saved, status, and stage movement history.</p>
+                  </div>
+                </div>
+                <div id="timelineList" class="timeline-list"></div>
+              </div>
+            </div>
+
+            <div class="panel large">
+              <div class="panel-header">
+                <div>
+                  <h2 id="workflowTitle">Workflow stages</h2>
+                  <p id="workflowSubtitle">All stages are visible. A stage can be submitted only when previous stages are complete.</p>
+                </div>
+              </div>
+              <div id="workflowFields" class="workflow-form"></div>
+              <div class="workflow-actions">
+                <span id="workflowMessage"></span>
+              </div>
+            </div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
