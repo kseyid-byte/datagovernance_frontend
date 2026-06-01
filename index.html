@@ -15,26 +15,42 @@
             <div class="brand-title">Governance Tool</div>
             <div class="brand-subtitle">Data product intake</div>
           </div>
+          <button class="sidebar-toggle" id="sidebarToggle" type="button" aria-label="Collapse sidebar">‹</button>
         </div>
 
         <nav class="nav">
-          <button class="nav-item active" data-view="overview">Overview</button>
-          <button class="nav-item" data-view="new-request">New request</button>
-          <button class="nav-item" data-view="admin">Admin workflow</button>
+          <button class="nav-item active" data-view="overview" aria-label="Overview">
+            <span class="nav-icon" aria-hidden="true">O</span>
+            <span class="nav-label">Overview</span>
+          </button>
+          <button class="nav-item" data-view="new-request" aria-label="New request">
+            <span class="nav-icon" aria-hidden="true">N</span>
+            <span class="nav-label">New request</span>
+          </button>
+          <button class="nav-item admin-only" data-view="admin" aria-label="Admin workflow">
+            <span class="nav-icon" aria-hidden="true">A</span>
+            <span class="nav-label">Admin workflow</span>
+          </button>
+          <button class="nav-item admin-only" data-view="master-data" aria-label="Master data">
+            <span class="nav-icon" aria-hidden="true">M</span>
+            <span class="nav-label">Master data</span>
+          </button>
         </nav>
 
         <div class="sidebar-panel">
-          <div class="sidebar-label">Current focus</div>
-          <div class="focus-value" id="sidebarStage">All products</div>
-          <div class="focus-meta" id="sidebarCount">0 visible</div>
+          <div class="sidebar-label">User email</div>
+          <input id="userEmailInput" class="sidebar-input" type="email" placeholder="name@syngenta.com" />
+          <button class="ghost-button full sidebar-action" id="applyUserEmail" type="button">Apply access</button>
+          <div class="focus-meta" id="userRoleLabel">Requester access</div>
         </div>
+
       </aside>
 
       <main class="main">
         <section class="view active" id="overviewView">
-          <header class="hero">
+          <header class="page-header">
             <div>
-              <div class="eyebrow">Databricks app concept</div>
+              <div class="eyebrow">Data product governance</div>
               <h1>Governed Data Product Console</h1>
               <p>
                 Capture new data product requests, track them through approvals, and publish governed
@@ -103,14 +119,14 @@
                       <th>Owner</th>
                     </tr>
                     <tr class="column-filter-row">
-                      <th><input class="column-filter" data-column="title" placeholder="Filter product" /></th>
-                      <th><input class="column-filter" data-column="domain" placeholder="Filter domain" /></th>
-                      <th><input class="column-filter" data-column="type" placeholder="Filter type" /></th>
-                      <th><input class="column-filter" data-column="platform" placeholder="Filter platform" /></th>
-                      <th><input class="column-filter" data-column="stage" placeholder="Filter stage" /></th>
-                      <th><input class="column-filter" data-column="daysInStage" placeholder="Days" /></th>
-                      <th><input class="column-filter" data-column="status" placeholder="Filter status" /></th>
-                      <th><input class="column-filter" data-column="owner" placeholder="Filter owner" /></th>
+                      <th><input class="column-filter" data-column="title" aria-label="Filter by product" placeholder="Filter product" /></th>
+                      <th><input class="column-filter" data-column="domain" aria-label="Filter by domain" placeholder="Filter domain" /></th>
+                      <th><input class="column-filter" data-column="type" aria-label="Filter by type" placeholder="Filter type" /></th>
+                      <th><input class="column-filter" data-column="platform" aria-label="Filter by platform" placeholder="Filter platform" /></th>
+                      <th><input class="column-filter" data-column="stage" aria-label="Filter by stage" placeholder="Filter stage" /></th>
+                      <th><input class="column-filter" data-column="daysInStage" aria-label="Filter by days in stage" placeholder="Days" /></th>
+                      <th><input class="column-filter" data-column="status" aria-label="Filter by status" placeholder="Filter status" /></th>
+                      <th><input class="column-filter" data-column="owner" aria-label="Filter by owner" placeholder="Filter owner" /></th>
                     </tr>
                   </thead>
                   <tbody id="productRows"></tbody>
@@ -252,6 +268,70 @@
                 <span id="workflowMessage"></span>
               </div>
             </div>
+          </section>
+        </section>
+
+        <section class="view" id="masterDataView">
+          <header class="page-header">
+            <div>
+              <div class="eyebrow">Master data</div>
+              <h1>Maintain central reference data</h1>
+              <p>Add or remove the lookup values used by intake and workflow assignment.</p>
+            </div>
+            <button class="ghost-button" data-view="overview">Back to overview</button>
+          </header>
+
+          <section class="master-data-layout">
+            <div class="panel">
+              <div class="panel-header compact">
+                <div>
+                  <h2>Add master data</h2>
+                  <p>Changes are saved in the local SQLite database.</p>
+                </div>
+              </div>
+              <form id="masterDataForm" class="master-data-form">
+                <label>
+                  Master data type
+                  <select id="masterDataCollection" name="collection"></select>
+                </label>
+                <div id="masterDataInputs" class="form-grid"></div>
+                <button class="primary-action full" type="submit">Save item</button>
+                <span id="masterDataMessage"></span>
+              </form>
+            </div>
+
+            <div class="panel large">
+              <div class="panel-header">
+                <div>
+                  <h2 id="masterDataTitle">Current values</h2>
+                  <p id="masterDataSubtitle">Select a master data type to review values.</p>
+                </div>
+              </div>
+              <div id="masterDataList" class="master-data-list"></div>
+            </div>
+          </section>
+
+          <section class="dashboard-grid design-preview-grid">
+            <article class="panel">
+              <h2>Approval actions design</h2>
+              <p>Each approval gate will capture approver, decision, reason, timestamp, and stage.</p>
+              <div class="approval-preview">
+                <button class="primary-action" type="button">Approve</button>
+                <button class="ghost-button" type="button">Request changes</button>
+                <button class="ghost-button" type="button">Reject</button>
+                <button class="ghost-button" type="button">Exception</button>
+              </div>
+            </article>
+            <article class="panel">
+              <h2>Reporting preview</h2>
+              <p>Reporting will summarize throughput, stage aging, blocked products, and ownership load.</p>
+              <div class="report-preview">
+                <span>Stage aging</span>
+                <span>Blocked by reason</span>
+                <span>Products by BU / region</span>
+                <span>SLA risk</span>
+              </div>
+            </article>
           </section>
         </section>
       </main>

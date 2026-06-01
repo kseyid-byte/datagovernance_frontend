@@ -8,11 +8,81 @@ import uuid
 from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 
 ROOT = Path(__file__).resolve().parent
 DB_PATH = ROOT / "governance_tool.sqlite"
+ADMIN_ROLE_KEYS = {"admin", "data_domain_owner", "domain_delivery_lead", "lynx_pm"}
+
+MASTER_DATA_CONFIG = {
+    "domains": {
+        "table": "md_domains",
+        "id": "domain_id",
+        "name": "domain_name",
+        "fields": [("name", "domain_name")],
+    },
+    "businessUnits": {
+        "table": "md_business_units",
+        "id": "business_unit_id",
+        "name": "business_unit_name",
+        "fields": [("name", "business_unit_name")],
+    },
+    "productTypes": {
+        "table": "md_product_types",
+        "id": "product_type_id",
+        "name": "product_type_name",
+        "fields": [("name", "product_type_name")],
+    },
+    "platforms": {
+        "table": "md_platforms",
+        "id": "platform_id",
+        "name": "platform_name",
+        "fields": [("name", "platform_name")],
+    },
+    "priorities": {
+        "table": "md_priorities",
+        "id": "priority_id",
+        "name": "priority_name",
+        "fields": [("name", "priority_name")],
+    },
+    "statuses": {
+        "table": "md_statuses",
+        "id": "status_id",
+        "name": "status_name",
+        "fields": [("name", "status_name")],
+    },
+    "subdomains": {
+        "table": "md_subdomains",
+        "id": "subdomain_id",
+        "name": "subdomain_name",
+        "fields": [("name", "subdomain_name"), ("domainId", "domain_id")],
+    },
+    "sourceSystems": {
+        "table": "md_source_systems",
+        "id": "source_system_id",
+        "name": "source_system_name",
+        "fields": [("name", "source_system_name")],
+    },
+    "scopeOptions": {
+        "table": "md_scope_options",
+        "id": "scope_id",
+        "name": "scope_name",
+        "fields": [("name", "scope_name"), ("type", "scope_type"), ("parentId", "parent_scope_id")],
+    },
+    "buildStatuses": {
+        "table": "md_build_statuses",
+        "id": "build_status_id",
+        "name": "build_status_name",
+        "fields": [("name", "build_status_name")],
+    },
+    "users": {
+        "table": "md_users",
+        "id": "user_id",
+        "name": "display_name",
+        "fields": [("name", "display_name"), ("email", "email"), ("roleKey", "role_key")],
+    },
+}
 
 STAGES = [
     ("intake", "Intake", 1),
@@ -32,7 +102,8 @@ STAGE_REQUIREMENTS = {
         ("additional_comments", "Additional comments", "textarea", None, "Any extra context for triage."),
     ],
     "reuse_domain": [
-        ("lead_subdomain_id", "Lead subdomain", "select", "subdomains", "Assign the accountable Commercial subdomain."),
+        ("lead_domain_id", "Lead domain", "select", "domains", "Select the accountable data domain."),
+        ("lead_subdomain_id", "Lead subdomain", "select", "subdomains", "Assign the accountable subdomain for the selected domain."),
         ("reuse_checked", "Existing product reuse checked", "checkbox", None, "Confirm existing data products were checked first."),
     ],
     "ownership": [
@@ -107,7 +178,6 @@ def init_db() -> None:
 
 
 def create_master_tables(db: sqlite3.Connection) -> None:
-    db.execute("DROP TABLE IF EXISTS md_scope_options")
     db.executescript(
         """
         CREATE TABLE IF NOT EXISTS md_domains (
@@ -141,7 +211,8 @@ def create_master_tables(db: sqlite3.Connection) -> None:
         );
         CREATE TABLE IF NOT EXISTS md_subdomains (
           subdomain_id TEXT PRIMARY KEY,
-          subdomain_name TEXT NOT NULL UNIQUE
+          subdomain_name TEXT NOT NULL,
+          domain_id TEXT NOT NULL DEFAULT 'commercial'
         );
         CREATE TABLE IF NOT EXISTS md_users (
           user_id TEXT PRIMARY KEY,
@@ -165,6 +236,50 @@ def create_master_tables(db: sqlite3.Connection) -> None:
         );
         """
     )
+    ensure_column(db, "md_scope_options", "parent_scope_id", "TEXT")
+    migrate_subdomains_table(db)
+
+
+def migrate_subdomains_table(db: sqlite3.Connection) -> None:
+    exists = db.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'md_subdomains'"
+    ).fetchone()
+    if not exists:
+        return
+    table_sql = db.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'md_subdomains'"
+    ).fetchone()["sql"]
+    columns = {row["name"] for row in db.execute("PRAGMA table_info(md_subdomains)").fetchall()}
+    if "domain_id" in columns and "subdomain_name TEXT NOT NULL UNIQUE" not in table_sql:
+        return
+
+    db.execute("ALTER TABLE md_subdomains RENAME TO md_subdomains_old")
+    db.execute(
+        """
+        CREATE TABLE md_subdomains (
+          subdomain_id TEXT PRIMARY KEY,
+          subdomain_name TEXT NOT NULL,
+          domain_id TEXT NOT NULL DEFAULT 'commercial',
+          UNIQUE(domain_id, subdomain_name)
+        )
+        """
+    )
+    old_columns = {row["name"] for row in db.execute("PRAGMA table_info(md_subdomains_old)").fetchall()}
+    domain_expr = "domain_id" if "domain_id" in old_columns else "'commercial'"
+    db.execute(
+        f"""
+        INSERT OR IGNORE INTO md_subdomains (subdomain_id, subdomain_name, domain_id)
+        SELECT subdomain_id, subdomain_name, {domain_expr}
+        FROM md_subdomains_old
+        """
+    )
+    db.execute("DROP TABLE md_subdomains_old")
+
+
+def ensure_column(db: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    columns = {row["name"] for row in db.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in columns:
+        db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 def migrate_request_table(db: sqlite3.Connection) -> None:
@@ -294,13 +409,13 @@ def create_workflow_tables(db: sqlite3.Connection) -> None:
 
 
 def seed_master_data(db: sqlite3.Connection) -> None:
-    db.execute("DELETE FROM md_domains WHERE domain_id <> 'commercial'")
-    db.execute("INSERT OR REPLACE INTO md_domains VALUES ('commercial', 'Commercial')")
-    replace_all(db, "md_business_units", [("cp", "CP"), ("seeds", "Seeds"), ("vegetables", "Vegetables")])
-    replace_all(db, "md_product_types", [("structured", "Structured"), ("unstructured", "Unstructured"), ("mixed", "Mixed")])
-    replace_all(db, "md_platforms", [("databricks", "Databricks"), ("lynx", "Lynx"), ("both", "Both")])
-    replace_all(db, "md_priorities", [("p1", "P1"), ("p2", "P2"), ("p3", "P3")])
-    replace_all(
+    db.execute("INSERT OR IGNORE INTO md_domains VALUES ('commercial', 'Commercial')")
+    db.execute("INSERT OR IGNORE INTO md_domains VALUES ('dummy_domain', 'Dummy Domain')")
+    insert_missing(db, "md_business_units", [("cp", "CP"), ("seeds", "Seeds"), ("vegetables", "Vegetables")])
+    insert_missing(db, "md_product_types", [("structured", "Structured"), ("unstructured", "Unstructured"), ("mixed", "Mixed")])
+    insert_missing(db, "md_platforms", [("databricks", "Databricks"), ("lynx", "Lynx"), ("both", "Both")])
+    insert_missing(db, "md_priorities", [("p1", "P1"), ("p2", "P2"), ("p3", "P3")])
+    insert_missing(
         db,
         "md_statuses",
         [
@@ -313,22 +428,14 @@ def seed_master_data(db: sqlite3.Connection) -> None:
             ("completed", "Completed"),
         ],
     )
-    replace_all(db, "md_stages", STAGES)
-    replace_all(
-        db,
-        "md_subdomains",
-        [
-            ("customer", "Customer"),
-            ("sales", "Sales"),
-            ("marketing", "Marketing"),
-            ("finance", "Finance"),
-            ("supply_chain", "Supply Chain"),
-        ],
-    )
-    replace_all(
+    insert_missing(db, "md_stages", STAGES)
+    seed_commercial_subdomains(db)
+    insert_missing(db, "md_subdomains", [("dummy_subdomain", "Dummy Subdomain", "dummy_domain")])
+    insert_missing(
         db,
         "md_users",
         [
+            ("admin_demo", "Demo Admin", "demo.admin@syngenta.com", "admin"),
             ("udo_anna", "Anna Khan", "anna.khan@syngenta.com", "data_domain_owner"),
             ("udo_maria", "Maria Rossi", "maria.rossi@syngenta.com", "data_domain_owner"),
             ("ddl_james", "James Silva", "james.silva@syngenta.com", "domain_delivery_lead"),
@@ -337,7 +444,7 @@ def seed_master_data(db: sqlite3.Connection) -> None:
             ("pm_lynx_sam", "Sam Martin", "sam.martin@syngenta.com", "lynx_pm"),
         ],
     )
-    replace_all(
+    insert_missing(
         db,
         "md_source_systems",
         [
@@ -348,7 +455,7 @@ def seed_master_data(db: sqlite3.Connection) -> None:
             ("manual_upload", "Manual upload"),
         ],
     )
-    replace_all(
+    insert_missing(
         db,
         "md_scope_options",
         [
@@ -370,7 +477,7 @@ def seed_master_data(db: sqlite3.Connection) -> None:
             ("new_zealand", "New Zealand", "Country", "janz"),
         ],
     )
-    replace_all(
+    insert_missing(
         db,
         "md_build_statuses",
         [
@@ -384,10 +491,49 @@ def seed_master_data(db: sqlite3.Connection) -> None:
     )
 
 
-def replace_all(db: sqlite3.Connection, table: str, rows: list[tuple]) -> None:
-    db.execute(f"DELETE FROM {table}")
+def insert_missing(db: sqlite3.Connection, table: str, rows: list[tuple]) -> None:
     placeholders = ", ".join(["?"] * len(rows[0]))
-    db.executemany(f"INSERT INTO {table} VALUES ({placeholders})", rows)
+    db.executemany(f"INSERT OR IGNORE INTO {table} VALUES ({placeholders})", rows)
+
+
+def seed_commercial_subdomains(db: sqlite3.Connection) -> None:
+    commercial_subdomains = [
+        ("non_transactional_customers", "Non Transactional Customers", "commercial"),
+        ("pricing_conditions", "Pricing and Conditions", "commercial"),
+        ("product_market_performance", "Product & Market Performance", "commercial"),
+        ("sales_commercial_transactions", "Sales & Commercial Transactions", "commercial"),
+        ("marketing_engagement", "Marketing & Engagement", "commercial"),
+        ("digital_agronomy_solutions", "Digital & Agronomy Solutions", "commercial"),
+    ]
+    insert_missing(db, "md_subdomains", commercial_subdomains)
+    replacements = {
+        "customer": "non_transactional_customers",
+        "sales": "sales_commercial_transactions",
+        "marketing": "marketing_engagement",
+        "finance": "pricing_conditions",
+        "supply_chain": "product_market_performance",
+    }
+    for old_id, new_id in replacements.items():
+        db.execute(
+            "UPDATE data_product_requests SET lead_subdomain_id = ? WHERE lead_subdomain_id = ?",
+            (new_id, old_id),
+        )
+        db.execute(
+            """
+            UPDATE request_stage_answers
+            SET answer_value = ?
+            WHERE answer_value = ?
+              AND requirement_id LIKE 'reuse_domain_%'
+            """,
+            (new_id, old_id),
+        )
+    db.execute(
+        """
+        DELETE FROM md_subdomains
+        WHERE domain_id = 'commercial'
+          AND subdomain_id IN ('customer', 'sales', 'marketing', 'finance', 'supply_chain')
+        """
+    )
 
 
 def seed_stage_requirements(db: sqlite3.Connection) -> None:
@@ -415,7 +561,6 @@ def seed_stage_requirements(db: sqlite3.Connection) -> None:
 def seed_requests(db: sqlite3.Connection) -> None:
     existing = db.execute("SELECT COUNT(*) AS count FROM data_product_requests").fetchone()["count"]
     if existing:
-        db.execute("UPDATE data_product_requests SET lead_domain_id = 'commercial' WHERE lead_domain_id <> 'commercial'")
         return
 
     timestamp = now()
@@ -506,7 +651,7 @@ def demo_answer(requirement: sqlite3.Row) -> str:
     if requirement["input_type"] == "date":
         return now()[:10]
     if requirement["master_data_type"] == "subdomains":
-        return "sales"
+        return "sales_commercial_transactions"
     if requirement["master_data_type"] == "dataDomainOwners":
         return "udo_anna"
     if requirement["master_data_type"] == "sourceSystems":
@@ -534,12 +679,21 @@ def validate_payload(payload: dict) -> str | None:
     return None
 
 
+def resolve_domain_id(db: sqlite3.Connection, domain_id: str | None) -> str:
+    clean_domain_id = slug_id(domain_id or "commercial")
+    exists = db.execute("SELECT 1 FROM md_domains WHERE domain_id = ?", (clean_domain_id,)).fetchone()
+    if not exists:
+        raise ValueError("domain is not valid")
+    return clean_domain_id
+
+
 def insert_request(db: sqlite3.Connection, payload: dict, timestamp: str | None = None) -> dict:
     timestamp = timestamp or now()
     request_id = str(uuid.uuid4())
     request_number = payload.get("request_number") or next_request_number(db)
     stage_id = payload.get("stage", "intake")
     status_id = payload.get("status", "in_review")
+    domain_id = resolve_domain_id(db, payload.get("domain"))
     db.execute(
         """
         INSERT INTO data_product_requests (
@@ -548,7 +702,7 @@ def insert_request(db: sqlite3.Connection, payload: dict, timestamp: str | None 
           requester_email, expected_date, additional_comments, current_stage_id, status_id,
           note, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'commercial', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             request_id,
@@ -558,6 +712,7 @@ def insert_request(db: sqlite3.Connection, payload: dict, timestamp: str | None 
             payload.get("productType", "structured"),
             payload.get("platform", "databricks"),
             payload.get("priority", "p2"),
+            domain_id,
             payload.get("businessUnit", "cp"),
             payload.get("scope", "global"),
             payload.get("requester", "").strip(),
@@ -580,6 +735,43 @@ def get_requests(db: sqlite3.Connection) -> list[dict]:
     return [serialize_request(row) for row in rows]
 
 
+def get_requests_for_user(db: sqlite3.Connection, email: str) -> list[dict]:
+    session = get_session(db, email)
+    if session["role"] == "admin":
+        return get_requests(db)
+    rows = db.execute(
+        request_select_sql() + " WHERE LOWER(r.requester_email) = ? ORDER BY r.created_at DESC",
+        (email.strip().lower(),),
+    ).fetchall()
+    return [serialize_request(row) for row in rows]
+
+
+def get_session(db: sqlite3.Connection, email: str) -> dict:
+    clean_email = email.strip().lower()
+    if not re.match(r"^[^@\s]+@syngenta\.com$", clean_email):
+        return {"email": clean_email, "role": "requester", "canAdmin": False, "name": "Requester"}
+    user = db.execute(
+        """
+        SELECT display_name, role_key
+        FROM md_users
+        WHERE LOWER(email) = ?
+        """,
+        (clean_email,),
+    ).fetchone()
+    can_admin = bool(user and user["role_key"] in ADMIN_ROLE_KEYS)
+    return {
+        "email": clean_email,
+        "role": "admin" if can_admin else "requester",
+        "canAdmin": can_admin,
+        "name": user["display_name"] if user else clean_email.split("@")[0],
+    }
+
+
+def require_admin(db: sqlite3.Connection, email: str | None) -> None:
+    if not get_session(db, email or "")["canAdmin"]:
+        raise PermissionError("Admin access is required")
+
+
 def get_master_data(db: sqlite3.Connection) -> dict:
     users = dict_rows(db.execute("SELECT user_id AS id, display_name AS name, email, role_key FROM md_users ORDER BY display_name").fetchall())
     return {
@@ -590,14 +782,93 @@ def get_master_data(db: sqlite3.Connection) -> dict:
         "priorities": dict_rows(db.execute("SELECT priority_id AS id, priority_name AS name FROM md_priorities ORDER BY priority_name").fetchall()),
         "stages": dict_rows(db.execute("SELECT stage_id AS id, stage_name AS name, stage_number AS number FROM md_stages ORDER BY stage_number").fetchall()),
         "statuses": dict_rows(db.execute("SELECT status_id AS id, status_name AS name FROM md_statuses ORDER BY status_name").fetchall()),
-        "subdomains": dict_rows(db.execute("SELECT subdomain_id AS id, subdomain_name AS name FROM md_subdomains ORDER BY subdomain_name").fetchall()),
+        "subdomains": dict_rows(
+            db.execute(
+                """
+                SELECT
+                  s.subdomain_id AS id,
+                  s.subdomain_name AS name,
+                  s.domain_id AS domainId,
+                  d.domain_name AS domainName
+                FROM md_subdomains s
+                JOIN md_domains d ON d.domain_id = s.domain_id
+                ORDER BY d.domain_name, s.subdomain_name
+                """
+            ).fetchall()
+        ),
         "sourceSystems": dict_rows(db.execute("SELECT source_system_id AS id, source_system_name AS name FROM md_source_systems ORDER BY source_system_name").fetchall()),
         "scopeOptions": dict_rows(db.execute("SELECT scope_id AS id, scope_name AS name, scope_type AS type, parent_scope_id AS parentId FROM md_scope_options ORDER BY CASE scope_type WHEN 'Global' THEN 0 WHEN 'Region' THEN 1 ELSE 2 END, scope_name").fetchall()),
         "buildStatuses": dict_rows(db.execute("SELECT build_status_id AS id, build_status_name AS name FROM md_build_statuses ORDER BY build_status_name").fetchall()),
         "dataDomainOwners": [user for user in users if user["role_key"] == "data_domain_owner"],
         "domainDeliveryLeads": [user for user in users if user["role_key"] == "domain_delivery_lead"],
         "lynxPms": [user for user in users if user["role_key"] == "lynx_pm"],
+        "users": users,
     }
+
+
+def upsert_master_data_item(db: sqlite3.Connection, collection: str, payload: dict) -> dict:
+    config = MASTER_DATA_CONFIG.get(collection)
+    if not config:
+        raise ValueError("Unsupported master data collection")
+    item_id = slug_id(payload.get("id") or payload.get("name") or payload.get("email") or "")
+    if not item_id:
+        raise ValueError("id or name is required")
+    columns = [config["id"]]
+    values = [item_id]
+    for payload_key, column in config["fields"]:
+        value = payload.get(payload_key, "")
+        if payload_key == "email":
+            value = str(value).strip().lower()
+            if value and not re.match(r"^[^@\s]+@syngenta\.com$", value):
+                raise ValueError("user email must use syngenta.com")
+        elif payload_key == "roleKey":
+            value = slug_id(value or "requester")
+        elif payload_key == "type":
+            value = value or "Region"
+        elif payload_key == "parentId":
+            value = value or None
+        elif payload_key == "domainId":
+            value = slug_id(value or "commercial")
+            domain_exists = db.execute("SELECT 1 FROM md_domains WHERE domain_id = ?", (value,)).fetchone()
+            if not domain_exists:
+                raise ValueError("domainId is not valid")
+        else:
+            value = str(value).strip()
+        if payload_key != "parentId" and not value:
+            raise ValueError(f"{payload_key} is required")
+        columns.append(column)
+        values.append(value)
+    placeholders = ", ".join(["?"] * len(values))
+    assignments = ", ".join([f"{column} = excluded.{column}" for column in columns[1:]])
+    db.execute(
+        f"""
+        INSERT INTO {config['table']} ({", ".join(columns)})
+        VALUES ({placeholders})
+        ON CONFLICT({config['id']})
+        DO UPDATE SET {assignments}
+        """,
+        values,
+    )
+    return {"id": item_id, **payload}
+
+
+def delete_master_data_item(db: sqlite3.Connection, collection: str, item_id: str) -> dict:
+    config = MASTER_DATA_CONFIG.get(collection)
+    if not config:
+        raise ValueError("Unsupported master data collection")
+    protected = {
+        "businessUnits": {"cp", "seeds", "vegetables"},
+        "domains": {"commercial"},
+        "stages": {stage[0] for stage in STAGES},
+    }
+    if item_id in protected.get(collection, set()):
+        raise ValueError("This master data item is protected")
+    db.execute(f"DELETE FROM {config['table']} WHERE {config['id']} = ?", (item_id,))
+    return {"deleted": item_id}
+
+
+def slug_id(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", value.strip().lower()).strip("_")
 
 
 def request_select_sql() -> str:
@@ -614,6 +885,7 @@ def request_select_sql() -> str:
           st.status_name,
           scope.scope_name,
           sub.subdomain_name,
+          sub.domain_id AS subdomain_domain_id,
           ddo.display_name AS data_domain_owner_name,
           ddo.email AS data_domain_owner_email,
           src.source_system_name,
@@ -710,15 +982,23 @@ def get_stage_requirements(db: sqlite3.Connection, request_id: str, stage_id: st
           req.master_data_type,
           req.help_text,
           req.is_required,
-          COALESCE(ans.answer_value, '') AS answer_value
+          CASE req.requirement_key
+            WHEN 'lead_domain_id' THEN r.lead_domain_id
+            WHEN 'lead_subdomain_id' THEN COALESCE(r.lead_subdomain_id, '')
+            WHEN 'expected_date' THEN COALESCE(r.expected_date, '')
+            WHEN 'additional_comments' THEN COALESCE(r.additional_comments, '')
+            ELSE COALESCE(ans.answer_value, '')
+          END AS answer_value
         FROM md_stage_requirements req
+        JOIN data_product_requests r
+          ON r.request_id = ?
         LEFT JOIN request_stage_answers ans
           ON ans.requirement_id = req.requirement_id
          AND ans.request_id = ?
         WHERE req.stage_id = ?
         ORDER BY req.sort_order
         """,
-        (request_id, stage_id),
+        (request_id, request_id, stage_id),
     ).fetchall()
     return [dict(row) for row in rows]
 
@@ -761,6 +1041,8 @@ def save_workflow_answers(db: sqlite3.Connection, request_id: str, payload: dict
         )
         update_structured_field(db, request_id, requirement["requirement_key"], clean_value)
 
+    reconcile_domain_subdomain(db, request_id)
+
     status_id = payload.get("statusId")
     if status_id:
         db.execute("UPDATE data_product_requests SET status_id = ? WHERE request_id = ?", (status_id, request_id))
@@ -774,8 +1056,38 @@ def save_workflow_answers(db: sqlite3.Connection, request_id: str, payload: dict
     return result
 
 
+def save_request_status(db: sqlite3.Connection, request_id: str, payload: dict) -> dict:
+    timestamp = now()
+    status_id = payload.get("statusId")
+    if not status_id:
+        raise ValueError("statusId is required")
+    exists = db.execute("SELECT 1 FROM md_statuses WHERE status_id = ?", (status_id,)).fetchone()
+    if not exists:
+        raise ValueError("statusId is not valid")
+    current = db.execute("SELECT current_stage_id FROM data_product_requests WHERE request_id = ?", (request_id,)).fetchone()
+    if not current:
+        raise ValueError("request not found")
+    db.execute(
+        "UPDATE data_product_requests SET status_id = ?, updated_at = ? WHERE request_id = ?",
+        (status_id, timestamp, request_id),
+    )
+    add_timeline(
+        db,
+        request_id,
+        "status_changed",
+        "Status updated",
+        f"Status changed to {status_id}.",
+        stage_id=current["current_stage_id"],
+        status_id=status_id,
+        created_by=payload.get("updatedBy", "admin"),
+        created_at=timestamp,
+    )
+    return get_workflow(db, request_id)
+
+
 def update_structured_field(db: sqlite3.Connection, request_id: str, key: str, value: str) -> None:
     field_map = {
+        "lead_domain_id": "lead_domain_id",
         "lead_subdomain_id": "lead_subdomain_id",
         "data_domain_owner_user_id": "data_domain_owner_user_id",
         "source_system_id": "source_system_id",
@@ -788,6 +1100,31 @@ def update_structured_field(db: sqlite3.Connection, request_id: str, key: str, v
     column = field_map.get(key)
     if column:
         db.execute(f"UPDATE data_product_requests SET {column} = ? WHERE request_id = ?", (value, request_id))
+
+
+def reconcile_domain_subdomain(db: sqlite3.Connection, request_id: str) -> None:
+    row = db.execute(
+        """
+        SELECT r.lead_domain_id, r.lead_subdomain_id, s.domain_id AS subdomain_domain_id
+        FROM data_product_requests r
+        LEFT JOIN md_subdomains s ON s.subdomain_id = r.lead_subdomain_id
+        WHERE r.request_id = ?
+        """,
+        (request_id,),
+    ).fetchone()
+    if not row or not row["lead_subdomain_id"]:
+        return
+    if row["lead_domain_id"] == row["subdomain_domain_id"]:
+        return
+    db.execute("UPDATE data_product_requests SET lead_subdomain_id = NULL WHERE request_id = ?", (request_id,))
+    db.execute(
+        """
+        DELETE FROM request_stage_answers
+        WHERE request_id = ?
+          AND requirement_id IN ('reuse_domain_lead_subdomain_id')
+        """,
+        (request_id,),
+    )
 
 
 def advance_if_complete(db: sqlite3.Connection, request_id: str, saved_stage_id: str, timestamp: str) -> bool:
@@ -878,6 +1215,7 @@ def serialize_request(row: sqlite3.Row) -> dict:
         "title": row["title"],
         "description": row["description"] or "",
         "domain": row["domain_name"],
+        "domainId": row["lead_domain_id"],
         "businessUnit": row["business_unit_name"] or "",
         "type": row["product_type_name"],
         "platform": row["platform_name"],
@@ -895,6 +1233,7 @@ def serialize_request(row: sqlite3.Row) -> dict:
         "status": row["status_name"],
         "statusId": row["status_id"],
         "leadSubdomain": row["subdomain_name"] or "",
+        "leadSubdomainDomainId": row["subdomain_domain_id"] or "",
         "dataDomainOwner": row["data_domain_owner_name"] or "",
         "sourceSystem": row["source_system_name"] or "",
         "domainDeliveryLead": row["domain_delivery_lead_name"] or "",
@@ -925,10 +1264,16 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
         super().__init__(*args, directory=str(ROOT), **kwargs)
 
     def do_GET(self) -> None:
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
+        query = parse_qs(parsed.query)
         try:
             if path == "/api/health":
                 self.send_json({"ok": True, "database": str(DB_PATH.name)})
+                return
+            if path == "/api/session":
+                with connect() as db:
+                    self.send_json(get_session(db, query.get("email", [""])[0]))
                 return
             if path == "/api/master-data":
                 with connect() as db:
@@ -936,7 +1281,8 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
                 return
             if path == "/api/requests":
                 with connect() as db:
-                    self.send_json(get_requests(db))
+                    email = query.get("email", [""])[0]
+                    self.send_json(get_requests_for_user(db, email) if email else get_requests(db))
                 return
             if path.startswith("/api/requests/") and path.endswith("/workflow"):
                 request_id = path.split("/")[3]
@@ -955,9 +1301,29 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
             if path.startswith("/api/requests/") and path.endswith("/answers"):
                 request_id = path.split("/")[3]
                 with connect() as db:
+                    require_admin(db, self.headers.get("X-User-Email"))
                     result = save_workflow_answers(db, request_id, payload)
                     db.commit()
                 self.send_json(result)
+                return
+
+            if path.startswith("/api/requests/") and path.endswith("/status"):
+                request_id = path.split("/")[3]
+                with connect() as db:
+                    require_admin(db, self.headers.get("X-User-Email"))
+                    result = save_request_status(db, request_id, payload)
+                    db.commit()
+                self.send_json(result)
+                return
+
+            if path.startswith("/api/master-data/"):
+                collection = path.split("/")[3]
+                with connect() as db:
+                    require_admin(db, self.headers.get("X-User-Email"))
+                    result = upsert_master_data_item(db, collection, payload)
+                    db.commit()
+                    master_data = get_master_data(db)
+                self.send_json({"saved": result, "masterData": master_data}, status=201)
                 return
 
             if path != "/api/requests":
@@ -975,6 +1341,27 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
             self.send_json(created, status=201)
         except PermissionError as exc:
             self.send_json({"error": str(exc)}, status=409)
+        except ValueError as exc:
+            self.send_json({"error": str(exc)}, status=400)
+        except Exception as exc:
+            self.send_json({"error": str(exc)}, status=500)
+
+    def do_DELETE(self) -> None:
+        path = urlparse(self.path).path
+        try:
+            if path.startswith("/api/master-data/"):
+                parts = path.split("/")
+                if len(parts) != 5:
+                    self.send_error(404)
+                    return
+                with connect() as db:
+                    require_admin(db, self.headers.get("X-User-Email"))
+                    result = delete_master_data_item(db, parts[3], parts[4])
+                    db.commit()
+                    master_data = get_master_data(db)
+                self.send_json({"deleted": result, "masterData": master_data})
+                return
+            self.send_error(404)
         except Exception as exc:
             self.send_json({"error": str(exc)}, status=500)
 

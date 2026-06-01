@@ -39,7 +39,8 @@ CREATE TABLE IF NOT EXISTS md_statuses (
 
 CREATE TABLE IF NOT EXISTS md_subdomains (
   subdomain_id TEXT PRIMARY KEY,
-  subdomain_name TEXT NOT NULL UNIQUE
+  subdomain_name TEXT NOT NULL,
+  domain_id TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS md_users (
@@ -129,7 +130,18 @@ CREATE TABLE IF NOT EXISTS request_timeline (
   created_at TEXT NOT NULL
 );
 
-INSERT OR REPLACE INTO md_domains VALUES ('commercial', 'Commercial');
+INSERT OR REPLACE INTO md_domains VALUES
+  ('commercial', 'Commercial'),
+  ('dummy_domain', 'Dummy Domain');
+
+INSERT OR REPLACE INTO md_subdomains VALUES
+  ('non_transactional_customers', 'Non Transactional Customers', 'commercial'),
+  ('pricing_conditions', 'Pricing and Conditions', 'commercial'),
+  ('product_market_performance', 'Product & Market Performance', 'commercial'),
+  ('sales_commercial_transactions', 'Sales & Commercial Transactions', 'commercial'),
+  ('marketing_engagement', 'Marketing & Engagement', 'commercial'),
+  ('digital_agronomy_solutions', 'Digital & Agronomy Solutions', 'commercial'),
+  ('dummy_subdomain', 'Dummy Subdomain', 'dummy_domain');
 
 INSERT OR REPLACE INTO md_business_units VALUES
   ('cp', 'CP'),
@@ -168,3 +180,6 @@ INSERT OR REPLACE INTO md_scope_options VALUES
   ('south_africa', 'South Africa', 'Country', 'amea'),
   ('australia', 'Australia', 'Country', 'janz'),
   ('new_zealand', 'New Zealand', 'Country', 'janz');
+
+INSERT OR REPLACE INTO md_users VALUES
+  ('admin_demo', 'Demo Admin', 'demo.admin@syngenta.com', 'admin');

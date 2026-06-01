@@ -12,6 +12,8 @@ The current scope is intentionally focused:
 - Admin workflow screen for completing stage requirements
 - Master-data driven dropdowns for domain, BU, priority, region/country scope, subdomain, source system, role assignments, status, and build status
 - Timeline capture for request creation, stage saves, status changes, and automatic movement
+- Role-based local access using a Syngenta email: requesters see their own requests; admins see workflow and master-data maintenance.
+- Admin master-data maintenance for adding/removing lookup values.
 - Temporary SQLite persistence through `server.py`
 
 There is no Streamlit dependency. The UI is plain HTML, CSS, and JavaScript so the layout is fully controlled. A small Python backend is included for local API testing.
@@ -44,12 +46,41 @@ Replace the SQLite calls in `server.py` with Databricks SQL / Delta table calls.
 ## Temporary workflow behavior
 
 - Master data is read from the local database through `/api/master-data`.
-- The active domain list is currently locked to `Commercial`.
+- Domains are read from master data in the intake form.
 - New request emails must use the `@syngenta.com` format.
 - Scope supports Global, regions, and countries tied to their parent region.
+- Domains are master data. Subdomains are tied to a parent domain so new domains and their own subdomains can be added later.
+- Commercial is seeded with: Non Transactional Customers, Pricing and Conditions, Product & Market Performance, Sales & Commercial Transactions, Marketing & Engagement, Digital & Agronomy Solutions.
+- Dummy Domain and Dummy Subdomain are seeded for testing domain changes.
 - Admin workflow data is read from `/api/requests/{request_id}/workflow`.
 - Admins can see every stage, but a stage can be submitted only when previous stages are complete.
 - Saving all required fields for the current stage automatically advances the product to the next stage.
+- Admin-only write APIs require `X-User-Email` with an admin email configured in `md_users`.
+- Demo admin email: `demo.admin@syngenta.com`.
+
+## Approval actions design
+
+The next implementation should add a `request_approvals` table and an approval panel in Admin Workflow.
+
+Recommended actions:
+
+- `Approve` - records approver, stage, timestamp, and advances when all approvals are complete.
+- `Request changes` - keeps the product in the current stage and captures required rework.
+- `Reject` - closes or parks the request with a reason.
+- `Exception approved` - allows movement with risk owner, expiry date, and reason.
+
+Each approval event should also write to `request_timeline`.
+
+## Reporting design
+
+Recommended reporting panels:
+
+- Stage aging: count and average days by current stage.
+- Blocked products: count by blocker reason/status owner.
+- Throughput: requests created, advanced, published by week.
+- Ownership load: products by Data Domain Owner, Delivery Lead, Lynx PM.
+- Scope view: products by business unit, region, and country.
+- SLA risk: products over target days in stage.
 
 ## Local database
 
