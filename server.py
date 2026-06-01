@@ -361,7 +361,7 @@ def migrate_request_table(db: sqlite3.Connection) -> None:
               COALESCE({col('expected_date', "NULL")}, NULL),
               {col('additional_comments', "''")},
               CASE WHEN current_stage_id = 'governance_review' THEN 'architecture_review' ELSE current_stage_id END,
-              CASE WHEN status_id IN ('not_started', 'in_review', 'in_progress', 'blocked', 'ready', 'operating', 'completed') THEN status_id ELSE 'in_review' END,
+              CASE WHEN status_id IN ('not_started', 'in_review', 'in_progress', 'blocked', 'ready', 'operating', 'on_hold', 'cancelled', 'deprecated') THEN status_id ELSE 'in_review' END,
               {col('lead_subdomain_id', "NULL")},
               {col('data_domain_owner_user_id', "NULL")},
               {col('source_system_id', "NULL")},
@@ -434,7 +434,9 @@ def seed_master_data(db: sqlite3.Connection) -> None:
             ("blocked", "Blocked"),
             ("ready", "Ready"),
             ("operating", "Operating"),
-            ("completed", "Completed"),
+            ("on_hold", "On hold"),
+            ("cancelled", "Cancelled"),
+            ("deprecated", "Deprecated"),
         ],
     )
     insert_missing(db, "md_stages", STAGES)
@@ -1169,8 +1171,8 @@ def advance_if_complete(db: sqlite3.Connection, request_id: str, saved_stage_id:
         (current["stage_number"],),
     ).fetchone()
     if not next_stage:
-        db.execute("UPDATE data_product_requests SET status_id = 'completed' WHERE request_id = ?", (request_id,))
-        add_timeline(db, request_id, "completed", "Workflow completed", "All stages are complete.", stage_id=saved_stage_id, status_id="completed", created_by="admin", created_at=timestamp)
+        db.execute("UPDATE data_product_requests SET status_id = 'operating' WHERE request_id = ?", (request_id,))
+        add_timeline(db, request_id, "completed", "Workflow completed", "All stages are complete.", stage_id=saved_stage_id, status_id="operating", created_by="admin", created_at=timestamp)
         return False
 
     next_status = "operating" if next_stage["stage_id"] == "operate" else "in_review"
