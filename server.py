@@ -148,6 +148,15 @@ SEED_PRODUCTS = [
     ("REQ-004", "Marketing dashboard v2", "structured", "databricks", "operate", "operating", "Monthly review completed"),
     ("REQ-005", "Supplier knowledge base", "unstructured", "lynx", "requirements", "in_review", "Missing CDE and quality rules"),
     ("REQ-006", "Returns analytics layer", "structured", "databricks", "publish", "ready", "Awaiting Alation documentation"),
+    ("REQ-007", "Pricing conditions master", "structured", "databricks", "reuse_domain", "in_review", "Domain assignment pending triage"),
+    ("REQ-008", "Field trial outcomes report", "structured", "databricks", "requirements", "blocked", "Source system not yet confirmed"),
+    ("REQ-009", "Grower loyalty index", "mixed", "both", "build_validate", "in_progress", "UAT in progress with commercial team"),
+    ("REQ-010", "Digital agronomy event log", "unstructured", "lynx", "intake", "not_started", "New request submitted for triage"),
+    ("REQ-011", "Seeds volume forecast", "structured", "databricks", "ownership", "in_review", "Awaiting domain delivery lead assignment"),
+    ("REQ-012", "Trade terms compliance tracker", "structured", "databricks", "architecture_review", "in_review", "Security pattern under review"),
+    ("REQ-013", "Crop protection market share", "structured", "databricks", "operate", "operating", "Stable, quarterly review scheduled"),
+    ("REQ-014", "Channel partner scorecard", "mixed", "both", "publish", "ready", "Release notes drafted, Alation pending"),
+    ("REQ-015", "SAP order discrepancy log", "structured", "databricks", "build_validate", "blocked", "Blocked on SAP integration access"),
 ]
 
 
@@ -361,7 +370,7 @@ def migrate_request_table(db: sqlite3.Connection) -> None:
               COALESCE({col('expected_date', "NULL")}, NULL),
               {col('additional_comments', "''")},
               CASE WHEN current_stage_id = 'governance_review' THEN 'architecture_review' ELSE current_stage_id END,
-              CASE WHEN status_id IN ('not_started', 'in_review', 'in_progress', 'blocked', 'ready', 'operating', 'completed') THEN status_id ELSE 'in_review' END,
+              CASE WHEN status_id IN ('not_started', 'in_review', 'in_progress', 'blocked', 'ready', 'operating', 'on_hold', 'cancelled', 'deprecated') THEN status_id ELSE 'in_review' END,
               {col('lead_subdomain_id', "NULL")},
               {col('data_domain_owner_user_id', "NULL")},
               {col('source_system_id', "NULL")},
@@ -434,7 +443,9 @@ def seed_master_data(db: sqlite3.Connection) -> None:
             ("blocked", "Blocked"),
             ("ready", "Ready"),
             ("operating", "Operating"),
-            ("completed", "Completed"),
+            ("on_hold", "On hold"),
+            ("cancelled", "Cancelled"),
+            ("deprecated", "Deprecated"),
         ],
     )
     insert_missing(db, "md_stages", STAGES)
@@ -745,14 +756,7 @@ def get_requests(db: sqlite3.Connection) -> list[dict]:
 
 
 def get_requests_for_user(db: sqlite3.Connection, email: str) -> list[dict]:
-    session = get_session(db, email)
-    if session["role"] == "admin":
-        return get_requests(db)
-    rows = db.execute(
-        request_select_sql() + " WHERE LOWER(r.requester_email) = ? ORDER BY r.created_at DESC",
-        (email.strip().lower(),),
-    ).fetchall()
-    return [serialize_request(row) for row in rows]
+    return get_requests(db)
 
 
 def get_session(db: sqlite3.Connection, email: str) -> dict:
@@ -768,10 +772,12 @@ def get_session(db: sqlite3.Connection, email: str) -> dict:
         (clean_email,),
     ).fetchone()
     can_admin = bool(user and user["role_key"] in ADMIN_ROLE_KEYS)
+    can_delete_master_data = bool(user and user["role_key"] == "admin")
     return {
         "email": clean_email,
         "role": "admin" if can_admin else "requester",
         "canAdmin": can_admin,
+        "canDeleteMasterData": can_delete_master_data,
         "name": user["display_name"] if user else clean_email.split("@")[0],
     }
 
@@ -1174,8 +1180,8 @@ def advance_if_complete(db: sqlite3.Connection, request_id: str, saved_stage_id:
         (current["stage_number"],),
     ).fetchone()
     if not next_stage:
-        db.execute("UPDATE data_product_requests SET status_id = 'completed' WHERE request_id = ?", (request_id,))
-        add_timeline(db, request_id, "completed", "Workflow completed", "All stages are complete.", stage_id=saved_stage_id, status_id="completed", created_by="admin", created_at=timestamp)
+        db.execute("UPDATE data_product_requests SET status_id = 'operating' WHERE request_id = ?", (request_id,))
+        add_timeline(db, request_id, "completed", "Workflow completed", "All stages are complete.", stage_id=saved_stage_id, status_id="operating", created_by="admin", created_at=timestamp)
         return False
 
     next_status = "operating" if next_stage["stage_id"] == "operate" else "in_review"
@@ -1364,7 +1370,10 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
                     self.send_error(404)
                     return
                 with connect() as db:
-                    require_admin(db, self.headers.get("X-User-Email"))
+                    session = get_session(db, self.headers.get("X-User-Email") or "")
+                    if not session.get("canDeleteMasterData"):
+                        self.send_json({"error": "Only admins can remove master data"}, status=403)
+                        return
                     result = delete_master_data_item(db, parts[3], parts[4])
                     db.commit()
                     master_data = get_master_data(db)

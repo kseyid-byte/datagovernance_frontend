@@ -661,17 +661,20 @@ function renderMasterDataList() {
         <strong>${escapeHtml(item.name)}</strong>
         <span>${escapeHtml(item.id)}${detail ? ` | ${escapeHtml(detail)}` : ""}</span>
       </div>
-      <button class="ghost-button" type="button">Remove</button>
+      ${currentUser.canDeleteMasterData ? `<button class="ghost-button" type="button">Remove</button>` : ""}
     `;
-    row.querySelector("button").addEventListener("click", () => deleteMasterDataItem(collection.key, item.id));
+    if (currentUser.canDeleteMasterData) {
+      row.querySelector("button").addEventListener("click", () => deleteMasterDataItem(collection.key, item.id));
+    }
     list.appendChild(row);
   });
 }
 
 async function handleMasterDataSubmit(event) {
   event.preventDefault();
+  const formEl = event.currentTarget;
   const collection = selectedMasterCollection();
-  const form = new FormData(event.currentTarget);
+  const form = new FormData(formEl);
   const payload = {};
   collection.fields.forEach((field) => {
     payload[field.name] = form.get(field.name) || "";
@@ -685,7 +688,7 @@ async function handleMasterDataSubmit(event) {
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || `Save failed with ${response.status}`);
     masterData = result.masterData;
-    event.currentTarget.reset();
+    formEl.reset();
     renderMasterData();
     populateRequestSelects();
     document.getElementById("masterDataMessage").textContent = "Saved.";
@@ -799,6 +802,7 @@ document.getElementById("applyUserEmail").addEventListener("click", async () => 
   currentUser.email = document.getElementById("userEmailInput").value.trim().toLowerCase();
   await loadSession();
   await loadProducts();
+  setView("overview");
   render();
 });
 document.getElementById("masterDataCollection").addEventListener("change", renderMasterData);
