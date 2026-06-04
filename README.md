@@ -30,18 +30,43 @@ Open:
 http://localhost:8502
 ```
 
+The Databricks entrypoint also works locally:
+
+```bash
+DATABRICKS_APP_PORT=8502 python3 app.py
+```
+
 ## Files
 
 - `index.html` - application shell and screens
 - `styles.css` - layout and visual design
 - `app.js` - dashboard state, request creation, filtering, and API calls
+- `app.py` - Databricks App entrypoint
+- `app.yaml` - Databricks App runtime command and demo environment
 - `server.py` - local static server plus temporary SQLite API
+- `requirements.txt` - Python dependency manifest for Databricks Apps
 - `governance_tool.sqlite` - local database created automatically when the server starts
 - `schema.sql` - clean schema matching the current local app data model
+- `sql/databricks_schema.sql` - Unity Catalog / Delta table DDL template
+- `sql/seed_master_data.sql` - Databricks SQL seed data for master data and stage requirements
+- `docs/databricks-app.md` - Databricks deployment checklist and backend switch notes
 
-## Next backend step
+## Databricks App deployment
 
-Replace the SQLite calls in `server.py` with Databricks SQL / Delta table calls.
+The repository can be used as a custom Databricks App source today.
+
+Current `app.yaml` runs the app in demo mode with SQLite stored at `/tmp/governance_tool.sqlite`. This is suitable for validating the UI and workflow in Databricks App compute, but it is not the durable production backend.
+
+To deploy from Git:
+
+1. Create a custom Databricks App.
+2. Use Git source `https://github.com/kseyid-byte/datagovernance_frontend`.
+3. Use branch `main` and source path `/`.
+4. Deploy.
+
+For the durable backend, create a Unity Catalog schema, run `sql/databricks_schema.sql`, run `sql/seed_master_data.sql`, then switch the backend from SQLite to a Databricks SQL adapter.
+
+See `docs/databricks-app.md` for the exact checklist.
 
 ## Temporary workflow behavior
 

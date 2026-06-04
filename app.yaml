@@ -1,0 +1,9 @@
+command:
+  - python
+  - app.py
+
+env:
+  - name: GOVERNANCE_BACKEND
+    value: sqlite
+  - name: GOVERNANCE_SQLITE_PATH
+    value: /tmp/governance_tool.sqlite

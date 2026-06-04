@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
 import sys
@@ -12,7 +13,8 @@ from urllib.parse import parse_qs, urlparse
 
 
 ROOT = Path(__file__).resolve().parent
-DB_PATH = ROOT / "governance_tool.sqlite"
+APP_BACKEND = os.getenv("GOVERNANCE_BACKEND", "sqlite").strip().lower()
+DB_PATH = Path(os.getenv("GOVERNANCE_SQLITE_PATH", ROOT / "governance_tool.sqlite"))
 ADMIN_ROLE_KEYS = {"admin", "data_domain_owner", "domain_delivery_lead", "lynx_pm"}
 
 MASTER_DATA_CONFIG = {
@@ -154,6 +156,11 @@ def now() -> str:
 
 
 def connect() -> sqlite3.Connection:
+    if APP_BACKEND != "sqlite":
+        raise RuntimeError(
+            "Only the sqlite backend is active in this build. Set GOVERNANCE_BACKEND=sqlite "
+            "or wire the Databricks SQL adapter after creating the Unity Catalog schema."
+        )
     connection = sqlite3.connect(DB_PATH)
     connection.row_factory = sqlite3.Row
     return connection
@@ -164,6 +171,8 @@ def dict_rows(rows: list[sqlite3.Row]) -> list[dict]:
 
 
 def init_db() -> None:
+    if APP_BACKEND != "sqlite":
+        return
     with connect() as db:
         db.execute("PRAGMA foreign_keys = OFF")
         create_master_tables(db)
@@ -1269,7 +1278,7 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
         query = parse_qs(parsed.query)
         try:
             if path == "/api/health":
-                self.send_json({"ok": True, "database": str(DB_PATH.name)})
+                self.send_json({"ok": True, "backend": APP_BACKEND, "database": str(DB_PATH)})
                 return
             if path == "/api/session":
                 with connect() as db:
@@ -1376,10 +1385,12 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
 
 def main() -> None:
     init_db()
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8502
+    port = int(sys.argv[1] if len(sys.argv) > 1 else os.getenv("DATABRICKS_APP_PORT", os.getenv("PORT", "8502")))
     server = ThreadingHTTPServer(("0.0.0.0", port), GovernanceHandler)
     print(f"Serving Governance Input Tool on http://localhost:{port}")
-    print(f"SQLite database: {DB_PATH}")
+    print(f"Backend: {APP_BACKEND}")
+    if APP_BACKEND == "sqlite":
+        print(f"SQLite database: {DB_PATH}")
     server.serve_forever()
 
 
