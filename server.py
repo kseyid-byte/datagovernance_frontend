@@ -15,6 +15,7 @@ from urllib.parse import parse_qs, urlparse
 ROOT = Path(__file__).resolve().parent
 APP_BACKEND = os.getenv("GOVERNANCE_BACKEND", "sqlite").strip().lower()
 DB_PATH = Path(os.getenv("GOVERNANCE_SQLITE_PATH", ROOT / "governance_tool.sqlite"))
+LOCAL_USER_EMAIL = os.getenv("GOVERNANCE_LOCAL_USER_EMAIL", "kerem.seyid@syngenta.com").strip().lower()
 ADMIN_ROLE_KEYS = {"admin", "data_domain_owner", "domain_delivery_lead", "lynx_pm"}
 
 MASTER_DATA_CONFIG = {
@@ -456,6 +457,7 @@ def seed_master_data(db: sqlite3.Connection) -> None:
         "md_users",
         [
             ("admin_demo", "Demo Admin", "demo.admin@syngenta.com", "admin"),
+            ("admin_kerem", "Kerem Seyid", "kerem.seyid@syngenta.com", "admin"),
             ("udo_anna", "Anna Khan", "anna.khan@syngenta.com", "data_domain_owner"),
             ("udo_maria", "Maria Rossi", "maria.rossi@syngenta.com", "data_domain_owner"),
             ("ddl_james", "James Silva", "james.silva@syngenta.com", "domain_delivery_lead"),
@@ -780,6 +782,16 @@ def get_session(db: sqlite3.Connection, email: str) -> dict:
         "canDeleteMasterData": can_delete_master_data,
         "name": user["display_name"] if user else clean_email.split("@")[0],
     }
+
+
+def request_user_email(headers, fallback: str = "") -> str:
+    return (
+        headers.get("X-Forwarded-Email")
+        or headers.get("X-Forwarded-Preferred-Username")
+        or headers.get("X-User-Email")
+        or fallback
+        or LOCAL_USER_EMAIL
+    ).strip().lower()
 
 
 def require_admin(db: sqlite3.Connection, email: str | None) -> None:
@@ -1288,7 +1300,7 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
                 return
             if path == "/api/session":
                 with connect() as db:
-                    self.send_json(get_session(db, query.get("email", [""])[0]))
+                    self.send_json(get_session(db, request_user_email(self.headers, query.get("email", [""])[0])))
                 return
             if path == "/api/master-data":
                 with connect() as db:
@@ -1316,7 +1328,7 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
             if path.startswith("/api/requests/") and path.endswith("/answers"):
                 request_id = path.split("/")[3]
                 with connect() as db:
-                    require_admin(db, self.headers.get("X-User-Email"))
+                    require_admin(db, request_user_email(self.headers))
                     result = save_workflow_answers(db, request_id, payload)
                     db.commit()
                 self.send_json(result)
@@ -1325,7 +1337,7 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
             if path.startswith("/api/requests/") and path.endswith("/status"):
                 request_id = path.split("/")[3]
                 with connect() as db:
-                    require_admin(db, self.headers.get("X-User-Email"))
+                    require_admin(db, request_user_email(self.headers))
                     result = save_request_status(db, request_id, payload)
                     db.commit()
                 self.send_json(result)
@@ -1334,7 +1346,7 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
             if path.startswith("/api/master-data/"):
                 collection = path.split("/")[3]
                 with connect() as db:
-                    require_admin(db, self.headers.get("X-User-Email"))
+                    require_admin(db, request_user_email(self.headers))
                     result = upsert_master_data_item(db, collection, payload)
                     db.commit()
                     master_data = get_master_data(db)
@@ -1370,7 +1382,7 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
                     self.send_error(404)
                     return
                 with connect() as db:
-                    session = get_session(db, self.headers.get("X-User-Email") or "")
+                    session = get_session(db, request_user_email(self.headers))
                     if not session.get("canDeleteMasterData"):
                         self.send_json({"error": "Only admins can remove master data"}, status=403)
                         return

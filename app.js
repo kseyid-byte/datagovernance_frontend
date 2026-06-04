@@ -5,9 +5,10 @@ let activeStageId = "";
 let activeView = "overview";
 let activeWorkflowRequestId = "";
 let currentUser = {
-  email: localStorage.getItem("governanceUserEmail") || "demo.admin@syngenta.com",
+  email: "",
   role: "requester",
   canAdmin: false,
+  canDeleteMasterData: false,
   name: "Requester",
 };
 const tableFilters = {};
@@ -64,8 +65,7 @@ const masterCollections = [
 ];
 
 async function loadProducts() {
-  const query = currentUser.email ? `?email=${encodeURIComponent(currentUser.email)}` : "";
-  const response = await fetch(`/api/requests${query}`);
+  const response = await fetch("/api/requests");
   if (!response.ok) throw new Error(`API returned ${response.status}`);
   products = await response.json();
 }
@@ -77,10 +77,9 @@ async function loadMasterData() {
 }
 
 async function loadSession() {
-  const response = await fetch(`/api/session?email=${encodeURIComponent(currentUser.email || "")}`);
+  const response = await fetch("/api/session");
   if (!response.ok) throw new Error(`Session API returned ${response.status}`);
   currentUser = await response.json();
-  localStorage.setItem("governanceUserEmail", currentUser.email || "");
 }
 
 function setView(view) {
@@ -223,10 +222,9 @@ function render() {
 }
 
 function renderAccess() {
-  document.getElementById("userEmailInput").value = currentUser.email || "";
   document.getElementById("userRoleLabel").textContent = currentUser.canAdmin
-    ? `Admin access: ${currentUser.name}`
-    : `Requester access: ${currentUser.name}`;
+    ? `${currentUser.name} | Admin`
+    : `${currentUser.name} | Requester`;
   document.querySelectorAll(".admin-only").forEach((element) => {
     element.hidden = !currentUser.canAdmin;
   });
@@ -798,13 +796,6 @@ document.querySelectorAll(".column-filter").forEach((input) => {
 });
 document.getElementById("requestForm").addEventListener("submit", handleSubmit);
 document.getElementById("adminProductSelect").addEventListener("change", (event) => loadWorkflow(event.target.value));
-document.getElementById("applyUserEmail").addEventListener("click", async () => {
-  currentUser.email = document.getElementById("userEmailInput").value.trim().toLowerCase();
-  await loadSession();
-  await loadProducts();
-  setView("overview");
-  render();
-});
 document.getElementById("masterDataCollection").addEventListener("change", renderMasterData);
 document.getElementById("masterDataForm").addEventListener("submit", handleMasterDataSubmit);
 

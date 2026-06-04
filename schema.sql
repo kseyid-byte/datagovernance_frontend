@@ -182,4 +182,5 @@ INSERT OR REPLACE INTO md_scope_options VALUES
   ('new_zealand', 'New Zealand', 'Country', 'janz');
 
 INSERT OR REPLACE INTO md_users VALUES
-  ('admin_demo', 'Demo Admin', 'demo.admin@syngenta.com', 'admin');
+  ('admin_demo', 'Demo Admin', 'demo.admin@syngenta.com', 'admin'),
+  ('admin_kerem', 'Kerem Seyid', 'kerem.seyid@syngenta.com', 'admin');

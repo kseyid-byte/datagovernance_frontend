@@ -55,6 +55,7 @@ INSERT INTO ${catalog}.${schema}.md_subdomains VALUES
 
 INSERT INTO ${catalog}.${schema}.md_users VALUES
   ('admin_demo', 'Demo Admin', 'demo.admin@syngenta.com', 'admin'),
+  ('admin_kerem', 'Kerem Seyid', 'kerem.seyid@syngenta.com', 'admin'),
   ('udo_anna', 'Anna Khan', 'anna.khan@syngenta.com', 'data_domain_owner'),
   ('udo_maria', 'Maria Rossi', 'maria.rossi@syngenta.com', 'data_domain_owner'),
   ('ddl_james', 'James Silva', 'james.silva@syngenta.com', 'domain_delivery_lead'),
