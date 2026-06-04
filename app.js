@@ -311,6 +311,7 @@ function renderWorkflow() {
     <span>${escapeHtml(product.id)} | ${escapeHtml(product.domain)} | ${escapeHtml(product.businessUnit || "No BU")}</span>
     <span>${escapeHtml(product.type)} | ${escapeHtml(product.platform)} | ${escapeHtml(product.priority)}</span>
     <span>Requester: ${escapeHtml(product.requester)} (${escapeHtml(product.requesterEmail)})</span>
+    <span>Initiative: ${escapeHtml(product.initiative || "Not set")}</span>
     <span>Current stage: ${escapeHtml(product.stage)}</span>
     <label class="admin-status-field">
       Product status
@@ -318,10 +319,19 @@ function renderWorkflow() {
         ${statusOptions(product.statusId)}
       </select>
     </label>
+    <label class="admin-status-field">
+      Status change reason
+      <textarea id="workflowStatusReason" rows="3" placeholder="Reason for status change">${escapeHtml(product.statusChangeReason || "")}</textarea>
+    </label>
     <button class="ghost-button full" id="saveWorkflowStatus" type="button">Save status</button>
     <span>${product.buildStatus ? `Build: ${escapeHtml(product.buildStatus)}` : "Build: Not set"}</span>
     <span>Scope: ${escapeHtml(product.scope || "Not set")}</span>
     <span>Expected date: ${escapeHtml(product.expectedDate || "Not set")}</span>
+    <span>Delivery date: ${escapeHtml(product.deliveryDate || "Not set")}</span>
+    <span>Delivery team: ${escapeHtml(product.deliveryTeam || "Not set")}</span>
+    <span>Effort: ${escapeHtml(product.effort ?? "Not set")}</span>
+    <span>Jira: ${product.jiraLink ? `<a href="${escapeHtml(product.jiraLink)}" target="_blank" rel="noreferrer">${escapeHtml(product.jiraEpicId || product.jiraLink)}</a>` : escapeHtml(product.jiraEpicId || "Not set")}</span>
+    <span>Last status change: ${escapeHtml(product.lastStatusChangeDate || "Not set")} ${product.lastStatusChangedBy ? `by ${escapeHtml(product.lastStatusChangedBy)}` : ""}</span>
   `;
 
   const fields = document.getElementById("workflowFields");
@@ -547,11 +557,12 @@ async function handleWorkflowSubmit(event) {
 async function handleStatusSave() {
   if (!currentWorkflow) return;
   const statusId = document.getElementById("workflowStatusSelect")?.value || "";
+  const statusChangeReason = document.getElementById("workflowStatusReason")?.value || "";
   try {
     const response = await fetch(`/api/requests/${currentWorkflow.request.requestId}/status`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-User-Email": currentUser.email },
-      body: JSON.stringify({ statusId, updatedBy: "admin" }),
+      body: JSON.stringify({ statusId, statusChangeReason, updatedBy: currentUser.email || "admin" }),
     });
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
@@ -720,6 +731,7 @@ async function handleSubmit(event) {
     title: form.get("title"),
     domain: form.get("domain"),
     businessUnit: form.get("businessUnit"),
+    initiative: form.get("initiative"),
     description: form.get("description"),
     productType: form.get("productType"),
     platform: form.get("platform"),
@@ -728,6 +740,11 @@ async function handleSubmit(event) {
     requester: form.get("requester"),
     requesterEmail: form.get("requesterEmail"),
     expectedDate: form.get("expectedDate"),
+    deliveryDate: form.get("deliveryDate"),
+    deliveryTeam: form.get("deliveryTeam"),
+    effort: form.get("effort"),
+    jiraEpicId: form.get("jiraEpicId"),
+    jiraLink: form.get("jiraLink"),
     additionalComments: form.get("additionalComments"),
   };
 

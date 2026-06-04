@@ -161,6 +161,10 @@
                   <select name="businessUnit" id="businessUnitSelect" required></select>
                 </label>
                 <label>
+                  Initiative
+                  <input name="initiative" placeholder="Commercial data acceleration" />
+                </label>
+                <label>
                   Requester
                   <input name="requester" required placeholder="Name" />
                 </label>
@@ -175,6 +179,14 @@
                 <label class="wide">
                   Expected date
                   <input name="expectedDate" type="date" required />
+                </label>
+                <label>
+                  Delivery date
+                  <input name="deliveryDate" type="date" />
+                </label>
+                <label>
+                  Delivery team
+                  <input name="deliveryTeam" placeholder="Commercial data squad" />
                 </label>
               </div>
             </section>
@@ -197,6 +209,18 @@
                 <label>
                   Scope
                   <select name="scope" id="scopeSelect" required></select>
+                </label>
+                <label>
+                  Effort
+                  <input name="effort" type="number" min="0" step="1" placeholder="Days" />
+                </label>
+                <label>
+                  Jira epic ID
+                  <input name="jiraEpicId" placeholder="ABC-123" />
+                </label>
+                <label class="wide">
+                  Jira link
+                  <input name="jiraLink" type="url" placeholder="https://..." />
                 </label>
                 <label class="wide">
                   Additional comments

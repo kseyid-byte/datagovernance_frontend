@@ -323,10 +323,19 @@ def migrate_request_table(db: sqlite3.Connection) -> None:
           scope_id TEXT,
           requester_name TEXT,
           requester_email TEXT,
+          initiative TEXT,
           expected_date TEXT,
+          delivery_date TEXT,
+          delivery_team TEXT,
+          effort INTEGER,
+          jira_epic_id TEXT,
+          jira_link TEXT,
           additional_comments TEXT,
           current_stage_id TEXT NOT NULL,
           status_id TEXT NOT NULL,
+          status_change_reason TEXT,
+          last_status_change_date TEXT,
+          last_status_changed_by TEXT,
           lead_subdomain_id TEXT,
           data_domain_owner_user_id TEXT,
           source_system_id TEXT,
@@ -351,7 +360,9 @@ def migrate_request_table(db: sqlite3.Connection) -> None:
             INSERT OR IGNORE INTO data_product_requests (
               request_id, request_number, title, description, product_type_id, target_platform_id,
               priority_id, lead_domain_id, business_unit_id, scope_id, requester_name,
-              requester_email, expected_date, additional_comments, current_stage_id, status_id,
+              requester_email, initiative, expected_date, delivery_date, delivery_team, effort,
+              jira_epic_id, jira_link, additional_comments, current_stage_id, status_id,
+              status_change_reason, last_status_change_date, last_status_changed_by,
               lead_subdomain_id, data_domain_owner_user_id, source_system_id,
               domain_delivery_lead_user_id, lynx_pm_user_id, build_status_id, note, created_at, updated_at
             )
@@ -368,10 +379,19 @@ def migrate_request_table(db: sqlite3.Connection) -> None:
               {col('scope_id', "NULL")},
               COALESCE({col('requester_name', col('requestor_name', "''"))}, ''),
               {col('requester_email', "''")},
+              {col('initiative', "''")},
               COALESCE({col('expected_date', "NULL")}, NULL),
+              COALESCE({col('delivery_date', "NULL")}, NULL),
+              {col('delivery_team', "''")},
+              {col('effort', "NULL")},
+              {col('jira_epic_id', "''")},
+              {col('jira_link', "''")},
               {col('additional_comments', "''")},
               CASE WHEN current_stage_id = 'governance_review' THEN 'architecture_review' ELSE current_stage_id END,
               CASE WHEN status_id IN ('not_started', 'in_review', 'in_progress', 'blocked', 'ready', 'operating', 'on_hold', 'cancelled', 'deprecated') THEN status_id ELSE 'in_review' END,
+              {col('status_change_reason', "''")},
+              {col('last_status_change_date', "NULL")},
+              {col('last_status_changed_by', "''")},
               {col('lead_subdomain_id', "NULL")},
               {col('data_domain_owner_user_id', "NULL")},
               {col('source_system_id', "NULL")},
@@ -722,10 +742,11 @@ def insert_request(db: sqlite3.Connection, payload: dict, timestamp: str | None 
         INSERT INTO data_product_requests (
           request_id, request_number, title, description, product_type_id, target_platform_id,
           priority_id, lead_domain_id, business_unit_id, scope_id, requester_name,
-          requester_email, expected_date, additional_comments, current_stage_id, status_id,
+          requester_email, initiative, expected_date, delivery_date, delivery_team, effort,
+          jira_epic_id, jira_link, additional_comments, current_stage_id, status_id,
           note, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             request_id,
@@ -740,7 +761,13 @@ def insert_request(db: sqlite3.Connection, payload: dict, timestamp: str | None 
             payload.get("scope", "global"),
             payload.get("requester", "").strip(),
             payload.get("requesterEmail", "").strip().lower(),
+            payload.get("initiative", "").strip(),
             payload.get("expectedDate", "").strip(),
+            payload.get("deliveryDate", "").strip(),
+            payload.get("deliveryTeam", "").strip(),
+            int(payload.get("effort") or 0) if str(payload.get("effort") or "").strip() else None,
+            payload.get("jiraEpicId", "").strip(),
+            payload.get("jiraLink", "").strip(),
             payload.get("additionalComments", "").strip(),
             stage_id,
             status_id,
@@ -1087,6 +1114,8 @@ def save_workflow_answers(db: sqlite3.Connection, request_id: str, payload: dict
 def save_request_status(db: sqlite3.Connection, request_id: str, payload: dict) -> dict:
     timestamp = now()
     status_id = payload.get("statusId")
+    reason = str(payload.get("statusChangeReason") or "").strip()
+    changed_by = payload.get("updatedBy", "admin")
     if not status_id:
         raise ValueError("statusId is required")
     exists = db.execute("SELECT 1 FROM md_statuses WHERE status_id = ?", (status_id,)).fetchone()
@@ -1096,18 +1125,26 @@ def save_request_status(db: sqlite3.Connection, request_id: str, payload: dict) 
     if not current:
         raise ValueError("request not found")
     db.execute(
-        "UPDATE data_product_requests SET status_id = ?, updated_at = ? WHERE request_id = ?",
-        (status_id, timestamp, request_id),
+        """
+        UPDATE data_product_requests
+        SET status_id = ?,
+            status_change_reason = ?,
+            last_status_change_date = ?,
+            last_status_changed_by = ?,
+            updated_at = ?
+        WHERE request_id = ?
+        """,
+        (status_id, reason, timestamp, changed_by, timestamp, request_id),
     )
     add_timeline(
         db,
         request_id,
         "status_changed",
         "Status updated",
-        f"Status changed to {status_id}.",
+        f"Status changed to {status_id}." + (f" Reason: {reason}" if reason else ""),
         stage_id=current["current_stage_id"],
         status_id=status_id,
-        created_by=payload.get("updatedBy", "admin"),
+        created_by=changed_by,
         created_at=timestamp,
     )
     return get_workflow(db, request_id)
@@ -1251,7 +1288,13 @@ def serialize_request(row: sqlite3.Row) -> dict:
         "scope": row["scope_name"] or "",
         "requester": row["requester_name"] or "",
         "requesterEmail": row["requester_email"] or "",
+        "initiative": row["initiative"] or "",
         "expectedDate": row["expected_date"] or "",
+        "deliveryDate": row["delivery_date"] or "",
+        "deliveryTeam": row["delivery_team"] or "",
+        "effort": row["effort"],
+        "jiraEpicId": row["jira_epic_id"] or "",
+        "jiraLink": row["jira_link"] or "",
         "additionalComments": row["additional_comments"] or "",
         "stage": row["stage_name"],
         "stageId": row["current_stage_id"],
@@ -1260,6 +1303,9 @@ def serialize_request(row: sqlite3.Row) -> dict:
         "daysInStage": days_since(current_stage_entered_at),
         "status": row["status_name"],
         "statusId": row["status_id"],
+        "statusChangeReason": row["status_change_reason"] or "",
+        "lastStatusChangeDate": row["last_status_change_date"] or "",
+        "lastStatusChangedBy": row["last_status_changed_by"] or "",
         "leadSubdomain": row["subdomain_name"] or "",
         "leadSubdomainDomainId": row["subdomain_domain_id"] or "",
         "dataDomainOwner": row["data_domain_owner_name"] or "",
