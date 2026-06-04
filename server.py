@@ -107,6 +107,11 @@ STAGE_REQUIREMENTS = {
     "reuse_domain": [
         ("lead_domain_id", "Lead domain", "select", "domains", "Select the accountable data domain."),
         ("lead_subdomain_id", "Lead subdomain", "select", "subdomains", "Assign the accountable subdomain for the selected domain."),
+        ("delivery_date", "Delivery date", "date", None, "Set the planned delivery date."),
+        ("delivery_lead", "Delivery lead", "text", None, "Name the delivery lead accountable for execution."),
+        ("effort", "Effort", "number", None, "Estimate delivery effort in days."),
+        ("jira_epic_id", "Jira epic ID", "text", None, "Add the Jira epic or delivery tracking ID."),
+        ("jira_link", "Jira link", "text", None, "Add the Jira epic or story link."),
         ("reuse_checked", "Existing product reuse checked", "checkbox", None, "Confirm existing data products were checked first."),
     ],
     "ownership": [
@@ -326,7 +331,7 @@ def migrate_request_table(db: sqlite3.Connection) -> None:
           initiative TEXT,
           expected_date TEXT,
           delivery_date TEXT,
-          delivery_team TEXT,
+          delivery_lead TEXT,
           effort INTEGER,
           jira_epic_id TEXT,
           jira_link TEXT,
@@ -360,7 +365,7 @@ def migrate_request_table(db: sqlite3.Connection) -> None:
             INSERT OR IGNORE INTO data_product_requests (
               request_id, request_number, title, description, product_type_id, target_platform_id,
               priority_id, lead_domain_id, business_unit_id, scope_id, requester_name,
-              requester_email, initiative, expected_date, delivery_date, delivery_team, effort,
+              requester_email, initiative, expected_date, delivery_date, delivery_lead, effort,
               jira_epic_id, jira_link, additional_comments, current_stage_id, status_id,
               status_change_reason, last_status_change_date, last_status_changed_by,
               lead_subdomain_id, data_domain_owner_user_id, source_system_id,
@@ -382,7 +387,7 @@ def migrate_request_table(db: sqlite3.Connection) -> None:
               {col('initiative', "''")},
               COALESCE({col('expected_date', "NULL")}, NULL),
               COALESCE({col('delivery_date', "NULL")}, NULL),
-              {col('delivery_team', "''")},
+              COALESCE({col('delivery_lead', col('delivery_team', "''"))}, ''),
               {col('effort', "NULL")},
               {col('jira_epic_id', "''")},
               {col('jira_link', "''")},
@@ -508,18 +513,9 @@ def seed_master_data(db: sqlite3.Connection) -> None:
             ("north_america", "North America", "Region", None),
             ("amea", "AMEA", "Region", None),
             ("janz", "JANZ", "Region", None),
-            ("france", "France", "Country", "europe"),
-            ("germany", "Germany", "Country", "europe"),
-            ("brazil", "Brazil", "Country", "latin_america"),
-            ("mexico", "Mexico", "Country", "latin_america"),
-            ("usa", "United States", "Country", "north_america"),
-            ("canada", "Canada", "Country", "north_america"),
-            ("india", "India", "Country", "amea"),
-            ("south_africa", "South Africa", "Country", "amea"),
-            ("australia", "Australia", "Country", "janz"),
-            ("new_zealand", "New Zealand", "Country", "janz"),
         ],
     )
+    db.execute("DELETE FROM md_scope_options WHERE scope_type = 'Country'")
     insert_missing(
         db,
         "md_build_statuses",
@@ -742,7 +738,7 @@ def insert_request(db: sqlite3.Connection, payload: dict, timestamp: str | None 
         INSERT INTO data_product_requests (
           request_id, request_number, title, description, product_type_id, target_platform_id,
           priority_id, lead_domain_id, business_unit_id, scope_id, requester_name,
-          requester_email, initiative, expected_date, delivery_date, delivery_team, effort,
+          requester_email, initiative, expected_date, delivery_date, delivery_lead, effort,
           jira_epic_id, jira_link, additional_comments, current_stage_id, status_id,
           note, created_at, updated_at
         )
@@ -764,7 +760,7 @@ def insert_request(db: sqlite3.Connection, payload: dict, timestamp: str | None 
             payload.get("initiative", "").strip(),
             payload.get("expectedDate", "").strip(),
             payload.get("deliveryDate", "").strip(),
-            payload.get("deliveryTeam", "").strip(),
+            payload.get("deliveryLead", "").strip(),
             int(payload.get("effort") or 0) if str(payload.get("effort") or "").strip() else None,
             payload.get("jiraEpicId", "").strip(),
             payload.get("jiraLink", "").strip(),
@@ -1040,6 +1036,11 @@ def get_stage_requirements(db: sqlite3.Connection, request_id: str, stage_id: st
           CASE req.requirement_key
             WHEN 'lead_domain_id' THEN r.lead_domain_id
             WHEN 'lead_subdomain_id' THEN COALESCE(r.lead_subdomain_id, '')
+            WHEN 'delivery_date' THEN COALESCE(r.delivery_date, '')
+            WHEN 'delivery_lead' THEN COALESCE(r.delivery_lead, '')
+            WHEN 'effort' THEN COALESCE(CAST(r.effort AS TEXT), '')
+            WHEN 'jira_epic_id' THEN COALESCE(r.jira_epic_id, '')
+            WHEN 'jira_link' THEN COALESCE(r.jira_link, '')
             WHEN 'expected_date' THEN COALESCE(r.expected_date, '')
             WHEN 'additional_comments' THEN COALESCE(r.additional_comments, '')
             ELSE COALESCE(ans.answer_value, '')
@@ -1154,6 +1155,11 @@ def update_structured_field(db: sqlite3.Connection, request_id: str, key: str, v
     field_map = {
         "lead_domain_id": "lead_domain_id",
         "lead_subdomain_id": "lead_subdomain_id",
+        "delivery_date": "delivery_date",
+        "delivery_lead": "delivery_lead",
+        "effort": "effort",
+        "jira_epic_id": "jira_epic_id",
+        "jira_link": "jira_link",
         "data_domain_owner_user_id": "data_domain_owner_user_id",
         "source_system_id": "source_system_id",
         "domain_delivery_lead_user_id": "domain_delivery_lead_user_id",
@@ -1291,7 +1297,7 @@ def serialize_request(row: sqlite3.Row) -> dict:
         "initiative": row["initiative"] or "",
         "expectedDate": row["expected_date"] or "",
         "deliveryDate": row["delivery_date"] or "",
-        "deliveryTeam": row["delivery_team"] or "",
+        "deliveryLead": row["delivery_lead"] or "",
         "effort": row["effort"],
         "jiraEpicId": row["jira_epic_id"] or "",
         "jiraLink": row["jira_link"] or "",

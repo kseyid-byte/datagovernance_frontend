@@ -77,17 +77,7 @@ INSERT INTO ${catalog}.${schema}.md_scope_options VALUES
   ('latin_america', 'Latin America', 'Region', NULL),
   ('north_america', 'North America', 'Region', NULL),
   ('amea', 'AMEA', 'Region', NULL),
-  ('janz', 'JANZ', 'Region', NULL),
-  ('france', 'France', 'Country', 'europe'),
-  ('germany', 'Germany', 'Country', 'europe'),
-  ('brazil', 'Brazil', 'Country', 'latin_america'),
-  ('mexico', 'Mexico', 'Country', 'latin_america'),
-  ('usa', 'United States', 'Country', 'north_america'),
-  ('canada', 'Canada', 'Country', 'north_america'),
-  ('india', 'India', 'Country', 'amea'),
-  ('south_africa', 'South Africa', 'Country', 'amea'),
-  ('australia', 'Australia', 'Country', 'janz'),
-  ('new_zealand', 'New Zealand', 'Country', 'janz');
+  ('janz', 'JANZ', 'Region', NULL);
 
 INSERT INTO ${catalog}.${schema}.md_build_statuses VALUES
   ('not_started', 'Not started'),
@@ -103,7 +93,12 @@ INSERT INTO ${catalog}.${schema}.md_stage_requirements VALUES
   ('intake_additional_comments', 'intake', 'additional_comments', 'Additional comments', 'textarea', NULL, 'Any extra context for triage.', 3, 1),
   ('reuse_domain_lead_domain_id', 'reuse_domain', 'lead_domain_id', 'Lead domain', 'select', 'domains', 'Select the accountable data domain.', 1, 1),
   ('reuse_domain_lead_subdomain_id', 'reuse_domain', 'lead_subdomain_id', 'Lead subdomain', 'select', 'subdomains', 'Assign the accountable subdomain for the selected domain.', 2, 1),
-  ('reuse_domain_reuse_checked', 'reuse_domain', 'reuse_checked', 'Existing product reuse checked', 'checkbox', NULL, 'Confirm existing data products were checked first.', 3, 1),
+  ('reuse_domain_delivery_date', 'reuse_domain', 'delivery_date', 'Delivery date', 'date', NULL, 'Set the planned delivery date.', 3, 1),
+  ('reuse_domain_delivery_lead', 'reuse_domain', 'delivery_lead', 'Delivery lead', 'text', NULL, 'Name the delivery lead accountable for execution.', 4, 1),
+  ('reuse_domain_effort', 'reuse_domain', 'effort', 'Effort', 'number', NULL, 'Estimate delivery effort in days.', 5, 1),
+  ('reuse_domain_jira_epic_id', 'reuse_domain', 'jira_epic_id', 'Jira epic ID', 'text', NULL, 'Add the Jira epic or delivery tracking ID.', 6, 1),
+  ('reuse_domain_jira_link', 'reuse_domain', 'jira_link', 'Jira link', 'text', NULL, 'Add the Jira epic or story link.', 7, 1),
+  ('reuse_domain_reuse_checked', 'reuse_domain', 'reuse_checked', 'Existing product reuse checked', 'checkbox', NULL, 'Confirm existing data products were checked first.', 8, 1),
   ('ownership_data_domain_owner_user_id', 'ownership', 'data_domain_owner_user_id', 'Data Domain Owner', 'select', 'dataDomainOwners', 'Select from master data.', 1, 1),
   ('ownership_source_system_id', 'ownership', 'source_system_id', 'Source System', 'select', 'sourceSystems', 'Select the approved source system.', 2, 1),
   ('ownership_domain_delivery_lead_user_id', 'ownership', 'domain_delivery_lead_user_id', 'Domain Delivery Lead', 'select', 'domainDeliveryLeads', 'Select from master data.', 3, 1),

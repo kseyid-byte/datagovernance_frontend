@@ -73,7 +73,7 @@ See `docs/databricks-app.md` for the exact checklist.
 - Master data is read from the local database through `/api/master-data`.
 - Domains are read from master data in the intake form.
 - New request emails must use the `@syngenta.com` format.
-- Scope supports Global, regions, and countries tied to their parent region.
+- Scope supports Global and regional scope. Countries can be added later if needed.
 - Domains are master data. Subdomains are tied to a parent domain so new domains and their own subdomains can be added later.
 - Commercial is seeded with: Non Transactional Customers, Pricing and Conditions, Product & Market Performance, Sales & Commercial Transactions, Marketing & Engagement, Digital & Agronomy Solutions.
 - Dummy Domain and Dummy Subdomain are seeded for testing domain changes.

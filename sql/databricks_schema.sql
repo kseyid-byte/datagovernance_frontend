@@ -108,7 +108,7 @@ CREATE TABLE IF NOT EXISTS ${catalog}.${schema}.data_product_requests (
   initiative STRING,
   expected_date STRING,
   delivery_date STRING,
-  delivery_team STRING,
+  delivery_lead STRING,
   effort INT,
   jira_epic_id STRING,
   jira_link STRING,

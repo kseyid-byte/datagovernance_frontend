@@ -83,7 +83,7 @@ CREATE TABLE IF NOT EXISTS data_product_requests (
   initiative TEXT,
   expected_date TEXT,
   delivery_date TEXT,
-  delivery_team TEXT,
+  delivery_lead TEXT,
   effort INTEGER,
   jira_epic_id TEXT,
   jira_link TEXT,
@@ -178,17 +178,7 @@ INSERT OR REPLACE INTO md_scope_options VALUES
   ('latin_america', 'Latin America', 'Region', NULL),
   ('north_america', 'North America', 'Region', NULL),
   ('amea', 'AMEA', 'Region', NULL),
-  ('janz', 'JANZ', 'Region', NULL),
-  ('france', 'France', 'Country', 'europe'),
-  ('germany', 'Germany', 'Country', 'europe'),
-  ('brazil', 'Brazil', 'Country', 'latin_america'),
-  ('mexico', 'Mexico', 'Country', 'latin_america'),
-  ('usa', 'United States', 'Country', 'north_america'),
-  ('canada', 'Canada', 'Country', 'north_america'),
-  ('india', 'India', 'Country', 'amea'),
-  ('south_africa', 'South Africa', 'Country', 'amea'),
-  ('australia', 'Australia', 'Country', 'janz'),
-  ('new_zealand', 'New Zealand', 'Country', 'janz');
+  ('janz', 'JANZ', 'Region', NULL);
 
 INSERT OR REPLACE INTO md_users VALUES
   ('admin_demo', 'Demo Admin', 'demo.admin@syngenta.com', 'admin'),

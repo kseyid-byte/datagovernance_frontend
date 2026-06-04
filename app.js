@@ -40,10 +40,10 @@ const masterCollections = [
   { key: "sourceSystems", label: "Source systems", fields: [{ name: "name", label: "Name" }] },
   {
     key: "scopeOptions",
-    label: "Regions / countries",
+    label: "Regions",
     fields: [
       { name: "name", label: "Name" },
-      { name: "type", label: "Type", type: "select", options: ["Global", "Region", "Country"] },
+      { name: "type", label: "Type", type: "select", options: ["Global", "Region"] },
       { name: "parentId", label: "Parent region", type: "scope-parent" },
     ],
   },
@@ -328,7 +328,7 @@ function renderWorkflow() {
     <span>Scope: ${escapeHtml(product.scope || "Not set")}</span>
     <span>Expected date: ${escapeHtml(product.expectedDate || "Not set")}</span>
     <span>Delivery date: ${escapeHtml(product.deliveryDate || "Not set")}</span>
-    <span>Delivery team: ${escapeHtml(product.deliveryTeam || "Not set")}</span>
+    <span>Delivery lead: ${escapeHtml(product.deliveryLead || "Not set")}</span>
     <span>Effort: ${escapeHtml(product.effort ?? "Not set")}</span>
     <span>Jira: ${product.jiraLink ? `<a href="${escapeHtml(product.jiraLink)}" target="_blank" rel="noreferrer">${escapeHtml(product.jiraEpicId || product.jiraLink)}</a>` : escapeHtml(product.jiraEpicId || "Not set")}</span>
     <span>Last status change: ${escapeHtml(product.lastStatusChangeDate || "Not set")} ${product.lastStatusChangedBy ? `by ${escapeHtml(product.lastStatusChangedBy)}` : ""}</span>
@@ -446,6 +446,20 @@ function renderRequirement(requirement, canSubmit) {
     input.type = "date";
     input.value = value;
     input.disabled = !canSubmit;
+    wrapper.append(help, input);
+    return wrapper;
+  }
+
+  if (["text", "number"].includes(requirement.input_type)) {
+    const input = document.createElement("input");
+    input.name = requirement.requirement_id;
+    input.type = requirement.input_type;
+    input.value = value;
+    input.disabled = !canSubmit;
+    if (requirement.input_type === "number") {
+      input.min = "0";
+      input.step = "1";
+    }
     wrapper.append(help, input);
     return wrapper;
   }
@@ -740,11 +754,6 @@ async function handleSubmit(event) {
     requester: form.get("requester"),
     requesterEmail: form.get("requesterEmail"),
     expectedDate: form.get("expectedDate"),
-    deliveryDate: form.get("deliveryDate"),
-    deliveryTeam: form.get("deliveryTeam"),
-    effort: form.get("effort"),
-    jiraEpicId: form.get("jiraEpicId"),
-    jiraLink: form.get("jiraLink"),
     additionalComments: form.get("additionalComments"),
   };
 
