@@ -183,4 +183,5 @@ INSERT OR REPLACE INTO md_scope_options VALUES
 
 INSERT OR REPLACE INTO md_users VALUES
   ('admin_demo', 'Demo Admin', 'demo.admin@syngenta.com', 'admin'),
-  ('admin_kerem', 'Kerem Seyid', 'kerem.seyid@syngenta.com', 'admin');
+  ('admin_kerem', 'Kerem Seyid', 'kerem.seyid@syngenta.com', 'admin'),
+  ('admin_harish', 'Harish Krishnamoorthy', 'harish.krishnamoorthy@syngenta.com', 'admin');
