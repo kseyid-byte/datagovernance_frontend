@@ -1396,10 +1396,10 @@ def main() -> None:
     init_db()
     port = int(sys.argv[1] if len(sys.argv) > 1 else os.getenv("DATABRICKS_APP_PORT", os.getenv("PORT", "8502")))
     server = ThreadingHTTPServer(("0.0.0.0", port), GovernanceHandler)
-    print(f"Serving Governance Input Tool on http://localhost:{port}")
-    print(f"Backend: {APP_BACKEND}")
+    print(f"Serving Governance Input Tool on http://localhost:{port}", flush=True)
+    print(f"Backend: {APP_BACKEND}", flush=True)
     if APP_BACKEND == "sqlite":
-        print(f"SQLite database: {DB_PATH}")
+        print(f"SQLite database: {DB_PATH}", flush=True)
     server.serve_forever()
 
 
