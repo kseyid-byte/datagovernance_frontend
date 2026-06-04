@@ -94,7 +94,7 @@ INSERT INTO ${catalog}.${schema}.md_stage_requirements VALUES
   ('reuse_domain_lead_domain_id', 'reuse_domain', 'lead_domain_id', 'Lead domain', 'select', 'domains', 'Select the accountable data domain.', 1, 1),
   ('reuse_domain_lead_subdomain_id', 'reuse_domain', 'lead_subdomain_id', 'Lead subdomain', 'select', 'subdomains', 'Assign the accountable subdomain for the selected domain.', 2, 1),
   ('reuse_domain_delivery_date', 'reuse_domain', 'delivery_date', 'Delivery date', 'date', NULL, 'Set the planned delivery date.', 3, 1),
-  ('reuse_domain_delivery_lead', 'reuse_domain', 'delivery_lead', 'Delivery lead', 'text', NULL, 'Name the delivery lead accountable for execution.', 4, 1),
+  ('reuse_domain_delivery_lead', 'reuse_domain', 'delivery_lead', 'Delivery lead', 'select', 'domainDeliveryLeads', 'Select from the same master data as Domain Delivery Lead.', 4, 1),
   ('reuse_domain_effort', 'reuse_domain', 'effort', 'Effort', 'number', NULL, 'Estimate delivery effort in days.', 5, 1),
   ('reuse_domain_jira_epic_id', 'reuse_domain', 'jira_epic_id', 'Jira epic ID', 'text', NULL, 'Add the Jira epic or delivery tracking ID.', 6, 1),
   ('reuse_domain_jira_link', 'reuse_domain', 'jira_link', 'Jira link', 'text', NULL, 'Add the Jira epic or story link.', 7, 1),

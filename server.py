@@ -108,7 +108,7 @@ STAGE_REQUIREMENTS = {
         ("lead_domain_id", "Lead domain", "select", "domains", "Select the accountable data domain."),
         ("lead_subdomain_id", "Lead subdomain", "select", "subdomains", "Assign the accountable subdomain for the selected domain."),
         ("delivery_date", "Delivery date", "date", None, "Set the planned delivery date."),
-        ("delivery_lead", "Delivery lead", "text", None, "Name the delivery lead accountable for execution."),
+        ("delivery_lead", "Delivery lead", "select", "domainDeliveryLeads", "Select from the same master data as Domain Delivery Lead."),
         ("effort", "Effort", "number", None, "Estimate delivery effort in days."),
         ("jira_epic_id", "Jira epic ID", "text", None, "Add the Jira epic or delivery tracking ID."),
         ("jira_link", "Jira link", "text", None, "Add the Jira epic or story link."),
@@ -595,6 +595,36 @@ def seed_stage_requirements(db: sqlite3.Connection) -> None:
         WHERE requirement_id NOT IN (SELECT requirement_id FROM md_stage_requirements)
         """
     )
+    db.execute(
+        """
+        UPDATE request_stage_answers
+        SET answer_value = 'ddl_james'
+        WHERE requirement_id = 'reuse_domain_delivery_lead'
+          AND answer_value NOT IN (
+            SELECT user_id FROM md_users WHERE role_key = 'domain_delivery_lead'
+          )
+        """
+    )
+    db.execute(
+        """
+        UPDATE data_product_requests
+        SET delivery_lead = 'ddl_james'
+        WHERE delivery_lead IS NOT NULL
+          AND delivery_lead <> ''
+          AND delivery_lead NOT IN (
+            SELECT user_id FROM md_users WHERE role_key = 'domain_delivery_lead'
+          )
+        """
+    )
+    db.execute(
+        """
+        UPDATE request_stage_answers
+        SET answer_value = '10'
+        WHERE requirement_id = 'reuse_domain_effort'
+          AND answer_value GLOB '*[^0-9]*'
+        """
+    )
+    db.execute("UPDATE data_product_requests SET effort = NULL WHERE effort GLOB '*[^0-9]*'")
 
 
 def seed_requests(db: sqlite3.Connection) -> None:
@@ -940,6 +970,7 @@ def request_select_sql() -> str:
           ddo.display_name AS data_domain_owner_name,
           ddo.email AS data_domain_owner_email,
           src.source_system_name,
+          dle.display_name AS delivery_lead_name,
           ddl.display_name AS domain_delivery_lead_name,
           lpm.display_name AS lynx_pm_name,
           bs.build_status_name
@@ -972,6 +1003,7 @@ def request_select_sql() -> str:
         LEFT JOIN md_subdomains sub ON sub.subdomain_id = r.lead_subdomain_id
         LEFT JOIN md_users ddo ON ddo.user_id = r.data_domain_owner_user_id
         LEFT JOIN md_source_systems src ON src.source_system_id = r.source_system_id
+        LEFT JOIN md_users dle ON dle.user_id = r.delivery_lead
         LEFT JOIN md_users ddl ON ddl.user_id = r.domain_delivery_lead_user_id
         LEFT JOIN md_users lpm ON lpm.user_id = r.lynx_pm_user_id
         LEFT JOIN md_build_statuses bs ON bs.build_status_id = r.build_status_id
@@ -1280,6 +1312,8 @@ def add_timeline(
 
 def serialize_request(row: sqlite3.Row) -> dict:
     current_stage_entered_at = row["current_stage_entered_at"] or row["created_at"]
+    delivery_lead = row["delivery_lead"] or ""
+    delivery_lead_name = row["delivery_lead_name"] or delivery_lead
     return {
         "id": row["request_number"],
         "requestId": row["request_id"],
@@ -1297,7 +1331,8 @@ def serialize_request(row: sqlite3.Row) -> dict:
         "initiative": row["initiative"] or "",
         "expectedDate": row["expected_date"] or "",
         "deliveryDate": row["delivery_date"] or "",
-        "deliveryLead": row["delivery_lead"] or "",
+        "deliveryLead": delivery_lead_name,
+        "deliveryLeadId": delivery_lead,
         "effort": row["effort"],
         "jiraEpicId": row["jira_epic_id"] or "",
         "jiraLink": row["jira_link"] or "",
