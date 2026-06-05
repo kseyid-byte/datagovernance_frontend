@@ -486,6 +486,16 @@ th {
   text-transform: uppercase;
 }
 
+.clickable-row {
+  cursor: pointer;
+}
+
+.clickable-row:hover,
+.clickable-row:focus {
+  background: #f8fafc;
+  outline: none;
+}
+
 .column-filter-row th {
   padding-top: 0;
 }

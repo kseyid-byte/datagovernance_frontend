@@ -194,6 +194,19 @@ function renderTable() {
 
   visible.forEach((product) => {
     const row = document.createElement("tr");
+    row.className = currentUser.canAdmin ? "clickable-row" : "";
+    if (currentUser.canAdmin) {
+      row.tabIndex = 0;
+      row.setAttribute("role", "button");
+      row.setAttribute("aria-label", `Open admin workflow for ${product.title}`);
+      row.addEventListener("click", () => openProductWorkflow(product.requestId));
+      row.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          openProductWorkflow(product.requestId);
+        }
+      });
+    }
     row.innerHTML = `
       <td><strong>${escapeHtml(product.title)}</strong><br><small>${escapeHtml(product.id)}</small></td>
       <td>${escapeHtml(product.domain)}<br><small>${escapeHtml(product.businessUnit || "")}</small></td>
@@ -206,6 +219,16 @@ function renderTable() {
     `;
     rows.appendChild(row);
   });
+}
+
+async function openProductWorkflow(requestId) {
+  if (!currentUser.canAdmin) return;
+  activeWorkflowRequestId = requestId;
+  setView("admin");
+  renderAdminOptions();
+  const select = document.getElementById("adminProductSelect");
+  if (select) select.value = requestId;
+  await loadWorkflow(requestId);
 }
 
 function stageNameById(stageId) {
