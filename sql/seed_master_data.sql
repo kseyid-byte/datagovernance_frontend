@@ -32,7 +32,10 @@ INSERT INTO ${catalog}.${schema}.md_statuses VALUES
   ('blocked', 'Blocked'),
   ('ready', 'Ready'),
   ('operating', 'Operating'),
-  ('completed', 'Completed');
+  ('completed', 'Completed'),
+  ('on_hold', 'On hold'),
+  ('cancelled', 'Cancelled'),
+  ('deprecated', 'Deprecated');
 
 INSERT INTO ${catalog}.${schema}.md_stages VALUES
   ('intake', 'Intake', 1),

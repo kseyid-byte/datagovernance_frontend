@@ -1,6 +1,2 @@
-# The current demo runtime uses only the Python standard library.
-# Keep this file so Databricks Apps has an explicit dependency manifest.
-#
-# When the Unity Catalog schema is ready and the Databricks SQL adapter is
-# enabled, add:
-# databricks-sql-connector>=4.0.0,<5.0.0
+databricks-sql-connector>=4.0.0,<5.0.0
+databricks-sdk>=0.50.0,<1.0.0

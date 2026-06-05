@@ -15,6 +15,8 @@ from urllib.parse import parse_qs, urlparse
 ROOT = Path(__file__).resolve().parent
 APP_BACKEND = os.getenv("GOVERNANCE_BACKEND", "sqlite").strip().lower()
 DB_PATH = Path(os.getenv("GOVERNANCE_SQLITE_PATH", ROOT / "governance_tool.sqlite"))
+GOVERNANCE_CATALOG = os.getenv("GOVERNANCE_CATALOG", "").strip()
+GOVERNANCE_SCHEMA = os.getenv("GOVERNANCE_SCHEMA", "").strip()
 LOCAL_USER_EMAIL = os.getenv("GOVERNANCE_LOCAL_USER_EMAIL", "kerem.seyid@syngenta.com").strip().lower()
 ADMIN_ROLE_KEYS = {"admin", "data_domain_owner", "domain_delivery_lead", "lynx_pm"}
 
@@ -170,19 +172,123 @@ def now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def connect() -> sqlite3.Connection:
+def databricks_server_hostname() -> str:
+    host = os.getenv("DATABRICKS_SERVER_HOSTNAME") or os.getenv("DATABRICKS_HOST", "")
+    return host.strip().removeprefix("https://").removeprefix("http://").rstrip("/")
+
+
+def databricks_http_path() -> str:
+    explicit_path = os.getenv("DATABRICKS_HTTP_PATH", "").strip()
+    if explicit_path:
+        return explicit_path
+    warehouse_id = os.getenv("DATABRICKS_WAREHOUSE_ID", "").strip()
+    if warehouse_id:
+        return f"/sql/1.0/warehouses/{warehouse_id}"
+    return ""
+
+
+class DatabricksConnection:
+    backend = "databricks_sql"
+
+    def __init__(self):
+        try:
+            from databricks import sql
+        except ImportError as exc:
+            raise RuntimeError(
+                "databricks-sql-connector is required when GOVERNANCE_BACKEND=databricks_sql"
+            ) from exc
+
+        server_hostname = databricks_server_hostname()
+        http_path = databricks_http_path()
+        if not server_hostname or not http_path:
+            raise RuntimeError(
+                "DATABRICKS_SERVER_HOSTNAME or DATABRICKS_HOST, and DATABRICKS_WAREHOUSE_ID or "
+                "DATABRICKS_HTTP_PATH are required for GOVERNANCE_BACKEND=databricks_sql"
+            )
+
+        kwargs = {
+            "server_hostname": server_hostname,
+            "http_path": http_path,
+        }
+        token = os.getenv("DATABRICKS_TOKEN", "").strip()
+        client_id = os.getenv("DATABRICKS_CLIENT_ID", "").strip()
+        client_secret = os.getenv("DATABRICKS_CLIENT_SECRET", "").strip()
+        if token:
+            kwargs["access_token"] = token
+        elif client_id and client_secret:
+            from databricks.sdk.core import Config, oauth_service_principal
+
+            def credential_provider():
+                config = Config(
+                    host=f"https://{server_hostname}",
+                    client_id=client_id,
+                    client_secret=client_secret,
+                )
+                return oauth_service_principal(config)
+
+            kwargs["credentials_provider"] = credential_provider
+        else:
+            kwargs["auth_type"] = "databricks-oauth"
+
+        self.connection = sql.connect(**kwargs)
+        if GOVERNANCE_CATALOG:
+            self.execute(f"USE CATALOG {quote_identifier(GOVERNANCE_CATALOG)}")
+        if GOVERNANCE_SCHEMA:
+            self.execute(f"USE SCHEMA {quote_identifier(GOVERNANCE_SCHEMA)}")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        self.close()
+
+    def execute(self, statement: str, params: tuple | list | None = None):
+        cursor = self.connection.cursor()
+        cursor.execute(statement, tuple(params or ()))
+        return cursor
+
+    def executemany(self, statement: str, rows: list[tuple]):
+        cursor = self.connection.cursor()
+        cursor.executemany(statement, rows)
+        return cursor
+
+    def commit(self) -> None:
+        commit = getattr(self.connection, "commit", None)
+        if commit:
+            commit()
+
+    def close(self) -> None:
+        self.connection.close()
+
+
+def quote_identifier(value: str) -> str:
+    if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", value):
+        raise ValueError(f"Invalid Databricks identifier: {value}")
+    return f"`{value}`"
+
+
+def is_databricks_db(db) -> bool:
+    return getattr(db, "backend", "") == "databricks_sql"
+
+
+def connect() -> sqlite3.Connection | DatabricksConnection:
+    if APP_BACKEND == "databricks_sql":
+        return DatabricksConnection()
     if APP_BACKEND != "sqlite":
-        raise RuntimeError(
-            "Only the sqlite backend is active in this build. Set GOVERNANCE_BACKEND=sqlite "
-            "or wire the Databricks SQL adapter after creating the Unity Catalog schema."
-        )
+        raise RuntimeError(f"Unsupported GOVERNANCE_BACKEND: {APP_BACKEND}")
     connection = sqlite3.connect(DB_PATH)
     connection.row_factory = sqlite3.Row
     return connection
 
 
-def dict_rows(rows: list[sqlite3.Row]) -> list[dict]:
-    return [dict(row) for row in rows]
+def row_to_dict(row) -> dict:
+    if hasattr(row, "asDict"):
+        return row.asDict()
+    return dict(row)
+
+
+def dict_rows(rows: list) -> list[dict]:
+    return [row_to_dict(row) for row in rows]
 
 
 def init_db() -> None:
@@ -919,17 +1025,35 @@ def upsert_master_data_item(db: sqlite3.Connection, collection: str, payload: di
             raise ValueError(f"{payload_key} is required")
         columns.append(column)
         values.append(value)
-    placeholders = ", ".join(["?"] * len(values))
-    assignments = ", ".join([f"{column} = excluded.{column}" for column in columns[1:]])
-    db.execute(
-        f"""
-        INSERT INTO {config['table']} ({", ".join(columns)})
-        VALUES ({placeholders})
-        ON CONFLICT({config['id']})
-        DO UPDATE SET {assignments}
-        """,
-        values,
-    )
+    if is_databricks_db(db):
+        exists = db.execute(
+            f"SELECT 1 FROM {config['table']} WHERE {config['id']} = ?",
+            (item_id,),
+        ).fetchone()
+        if exists:
+            assignments = ", ".join([f"{column} = ?" for column in columns[1:]])
+            db.execute(
+                f"UPDATE {config['table']} SET {assignments} WHERE {config['id']} = ?",
+                [*values[1:], item_id],
+            )
+        else:
+            placeholders = ", ".join(["?"] * len(values))
+            db.execute(
+                f"INSERT INTO {config['table']} ({', '.join(columns)}) VALUES ({placeholders})",
+                values,
+            )
+    else:
+        placeholders = ", ".join(["?"] * len(values))
+        assignments = ", ".join([f"{column} = excluded.{column}" for column in columns[1:]])
+        db.execute(
+            f"""
+            INSERT INTO {config['table']} ({", ".join(columns)})
+            VALUES ({placeholders})
+            ON CONFLICT({config['id']})
+            DO UPDATE SET {assignments}
+            """,
+            values,
+        )
     return {"id": item_id, **payload}
 
 
@@ -1054,8 +1178,9 @@ def get_workflow(db: sqlite3.Connection, request_id: str) -> dict:
 
 
 def get_stage_requirements(db: sqlite3.Connection, request_id: str, stage_id: str) -> list[dict]:
+    effort_expr = "COALESCE(CAST(r.effort AS STRING), '')" if is_databricks_db(db) else "COALESCE(CAST(r.effort AS TEXT), '')"
     rows = db.execute(
-        """
+        f"""
         SELECT
           req.requirement_id,
           req.stage_id,
@@ -1070,7 +1195,7 @@ def get_stage_requirements(db: sqlite3.Connection, request_id: str, stage_id: st
             WHEN 'lead_subdomain_id' THEN COALESCE(r.lead_subdomain_id, '')
             WHEN 'delivery_date' THEN COALESCE(r.delivery_date, '')
             WHEN 'delivery_lead' THEN COALESCE(r.delivery_lead, '')
-            WHEN 'effort' THEN COALESCE(CAST(r.effort AS TEXT), '')
+            WHEN 'effort' THEN {effort_expr}
             WHEN 'jira_epic_id' THEN COALESCE(r.jira_epic_id, '')
             WHEN 'jira_link' THEN COALESCE(r.jira_link, '')
             WHEN 'expected_date' THEN COALESCE(r.expected_date, '')
@@ -1088,7 +1213,7 @@ def get_stage_requirements(db: sqlite3.Connection, request_id: str, stage_id: st
         """,
         (request_id, request_id, stage_id),
     ).fetchall()
-    return [dict(row) for row in rows]
+    return dict_rows(rows)
 
 
 def is_answer_complete(item: dict) -> bool:
@@ -1118,15 +1243,7 @@ def save_workflow_answers(db: sqlite3.Connection, request_id: str, payload: dict
         if not requirement:
             continue
         clean_value = "true" if requirement["input_type"] == "checkbox" and answer_value else str(answer_value).strip()
-        db.execute(
-            """
-            INSERT INTO request_stage_answers (answer_id, request_id, requirement_id, answer_value, updated_at)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(request_id, requirement_id)
-            DO UPDATE SET answer_value = excluded.answer_value, updated_at = excluded.updated_at
-            """,
-            (str(uuid.uuid4()), request_id, requirement_id, clean_value, timestamp),
-        )
+        upsert_stage_answer(db, request_id, requirement_id, clean_value, timestamp)
         update_structured_field(db, request_id, requirement["requirement_key"], clean_value)
 
     reconcile_domain_subdomain(db, request_id)
@@ -1142,6 +1259,46 @@ def save_workflow_answers(db: sqlite3.Connection, request_id: str, payload: dict
     result = get_workflow(db, request_id)
     result["advanced"] = advanced
     return result
+
+
+def upsert_stage_answer(db: sqlite3.Connection, request_id: str, requirement_id: str, value: str, timestamp: str) -> None:
+    if is_databricks_db(db):
+        exists = db.execute(
+            """
+            SELECT 1
+            FROM request_stage_answers
+            WHERE request_id = ? AND requirement_id = ?
+            """,
+            (request_id, requirement_id),
+        ).fetchone()
+        if exists:
+            db.execute(
+                """
+                UPDATE request_stage_answers
+                SET answer_value = ?, updated_at = ?
+                WHERE request_id = ? AND requirement_id = ?
+                """,
+                (value, timestamp, request_id, requirement_id),
+            )
+        else:
+            db.execute(
+                """
+                INSERT INTO request_stage_answers (answer_id, request_id, requirement_id, answer_value, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (str(uuid.uuid4()), request_id, requirement_id, value, timestamp),
+            )
+        return
+
+    db.execute(
+        """
+        INSERT INTO request_stage_answers (answer_id, request_id, requirement_id, answer_value, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(request_id, requirement_id)
+        DO UPDATE SET answer_value = excluded.answer_value, updated_at = excluded.updated_at
+        """,
+        (str(uuid.uuid4()), request_id, requirement_id, value, timestamp),
+    )
 
 
 def save_request_status(db: sqlite3.Connection, request_id: str, payload: dict) -> dict:
@@ -1384,7 +1541,12 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
         query = parse_qs(parsed.query)
         try:
             if path == "/api/health":
-                self.send_json({"ok": True, "backend": APP_BACKEND, "database": str(DB_PATH)})
+                database = (
+                    f"{GOVERNANCE_CATALOG}.{GOVERNANCE_SCHEMA}"
+                    if APP_BACKEND == "databricks_sql"
+                    else str(DB_PATH)
+                )
+                self.send_json({"ok": True, "backend": APP_BACKEND, "database": database})
                 return
             if path == "/api/session":
                 with connect() as db:
@@ -1500,6 +1662,8 @@ def main() -> None:
     print(f"Backend: {APP_BACKEND}", flush=True)
     if APP_BACKEND == "sqlite":
         print(f"SQLite database: {DB_PATH}", flush=True)
+    elif APP_BACKEND == "databricks_sql":
+        print(f"Databricks schema: {GOVERNANCE_CATALOG}.{GOVERNANCE_SCHEMA}", flush=True)
     server.serve_forever()
 
 

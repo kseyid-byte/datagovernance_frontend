@@ -5,6 +5,10 @@ command:
 
 env:
   - name: GOVERNANCE_BACKEND
-    value: sqlite
-  - name: GOVERNANCE_SQLITE_PATH
-    value: /tmp/governance_tool.sqlite
+    value: databricks_sql
+  - name: GOVERNANCE_CATALOG
+    value: venus_forge_dev
+  - name: GOVERNANCE_SCHEMA
+    value: app_product_details
+  - name: DATABRICKS_WAREHOUSE_ID
+    valueFrom: sql_warehouse

@@ -1,12 +1,12 @@
 # Databricks App Readiness
 
-This repository is ready to deploy as a Databricks App in demo mode.
+This repository is ready to deploy as a Databricks App backed by Databricks SQL.
 
 ## Runtime files
 
 - `app.yaml` defines the Databricks App command.
 - `app.py` is the stable Python entrypoint.
-- `requirements.txt` is intentionally present even though the demo build uses only the Python standard library.
+- `requirements.txt` includes the Databricks SQL connector and SDK.
 - `server.py` reads `DATABRICKS_APP_PORT`, so Databricks can assign the runtime port.
 
 Databricks Apps requires `app.yaml` at the repository root when a custom command or environment values are needed. Databricks substitutes `DATABRICKS_APP_PORT` at runtime and installs dependencies from `requirements.txt`.
@@ -16,33 +16,29 @@ Databricks Apps requires `app.yaml` at the repository root when a custom command
 The committed `app.yaml` uses:
 
 ```yaml
-GOVERNANCE_BACKEND: sqlite
-GOVERNANCE_SQLITE_PATH: /tmp/governance_tool.sqlite
+GOVERNANCE_BACKEND: databricks_sql
+GOVERNANCE_CATALOG: venus_forge_dev
+GOVERNANCE_SCHEMA: app_product_details
+DATABRICKS_WAREHOUSE_ID:
+  valueFrom: sql_warehouse
 ```
 
-This is for same-day demo deployment. The data is not intended to be durable in Databricks App compute. Use it to validate the UI, workflow, roles, and process movement.
+This stores requests, workflow answers, master data, and timeline events in Unity Catalog Delta tables.
 
-## Production backend switch
+For local testing, keep using SQLite by running:
 
-After you create the Unity Catalog schema:
-
-1. Run `sql/databricks_schema.sql` after replacing `${catalog}.${schema}`.
-2. Seed the master data from the values in `server.py`.
-3. Add `databricks-sql-connector>=4.0.0,<5.0.0` to `requirements.txt`.
-4. Implement a Databricks SQL repository behind the same API functions used by `server.py`.
-5. Change `app.yaml`:
-
-```yaml
-env:
-  - name: GOVERNANCE_BACKEND
-    value: databricks_sql
-  - name: GOVERNANCE_CATALOG
-    value: your_catalog
-  - name: GOVERNANCE_SCHEMA
-    value: your_schema
-  - name: DATABRICKS_WAREHOUSE_ID
-    valueFrom: sql_warehouse
+```bash
+GOVERNANCE_BACKEND=sqlite DATABRICKS_APP_PORT=8502 python3 app.py
 ```
+
+## Databricks SQL setup
+
+Before deploying the SQL-backed app:
+
+1. Run `sql/databricks_schema.sql` after replacing `${catalog}.${schema}` with `venus_forge_dev.app_product_details`.
+2. Run `sql/seed_master_data.sql` with the same replacement.
+3. Add a Databricks App SQL warehouse resource using resource key `sql_warehouse`.
+4. Grant the app service principal `USE CATALOG`, `USE SCHEMA`, and table read/write permissions on `venus_forge_dev.app_product_details`.
 
 Use a Databricks App resource for the SQL warehouse instead of hardcoding sensitive or environment-specific values.
 
