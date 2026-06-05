@@ -256,8 +256,8 @@ function render() {
 
 function renderAccess() {
   document.getElementById("userRoleLabel").textContent = currentUser.canAdmin
-    ? `${currentUser.name} | Admin`
-    : `${currentUser.name} | Requester`;
+    ? `${currentUser.name} | Admin | ${currentUser.email || "No email"}`
+    : `${currentUser.name} | Requester | ${currentUser.email || "No email"}`;
   document.querySelectorAll(".admin-only").forEach((element) => {
     element.hidden = !currentUser.canAdmin;
   });

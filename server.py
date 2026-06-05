@@ -952,7 +952,7 @@ def get_session(db: sqlite3.Connection, email: str) -> dict:
     }
 
 
-def fallback_session(email: str) -> dict:
+def fallback_session(email: str, source: str = "fallback") -> dict:
     name = STATIC_ADMIN_EMAILS.get(email, email.split("@")[0])
     can_admin = email in STATIC_ADMIN_EMAILS
     return {
@@ -962,6 +962,7 @@ def fallback_session(email: str) -> dict:
         "canDeleteMasterData": can_admin,
         "name": name,
         "sessionWarning": "Session role is using static fallback because Databricks SQL was not reachable.",
+        "identitySource": source,
     }
 
 
@@ -970,14 +971,28 @@ def log_exception(context: str, exc: Exception) -> None:
     traceback.print_exc(file=sys.stderr)
 
 
+def resolve_user_email(headers, fallback: str = "") -> tuple[str, str]:
+    candidates = [
+        ("X-Forwarded-Email", headers.get("X-Forwarded-Email")),
+        ("X-Forwarded-Preferred-Username", headers.get("X-Forwarded-Preferred-Username")),
+        ("X-Forwarded-User", headers.get("X-Forwarded-User")),
+        ("X-Forwarded-Login", headers.get("X-Forwarded-Login")),
+        ("X-User-Email", headers.get("X-User-Email")),
+        ("X-Databricks-User-Email", headers.get("X-Databricks-User-Email")),
+        ("X-Databricks-User", headers.get("X-Databricks-User")),
+        ("fallback", fallback),
+        ("local-default", LOCAL_USER_EMAIL),
+    ]
+    for source, value in candidates:
+        clean_value = str(value or "").strip().lower()
+        if clean_value:
+            print(f"Resolved user identity from {source}: {clean_value}", flush=True)
+            return clean_value, source
+    return "", "none"
+
+
 def request_user_email(headers, fallback: str = "") -> str:
-    return (
-        headers.get("X-Forwarded-Email")
-        or headers.get("X-Forwarded-Preferred-Username")
-        or headers.get("X-User-Email")
-        or fallback
-        or LOCAL_USER_EMAIL
-    ).strip().lower()
+    return resolve_user_email(headers, fallback)[0]
 
 
 def require_admin(db: sqlite3.Connection, email: str | None) -> None:
@@ -1575,13 +1590,15 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
                 self.send_json({"ok": True, "backend": APP_BACKEND, "database": database})
                 return
             if path == "/api/session":
-                email = request_user_email(self.headers, query.get("email", [""])[0])
+                email, identity_source = resolve_user_email(self.headers, query.get("email", [""])[0])
                 try:
                     with connect() as db:
-                        self.send_json(get_session(db, email))
+                        session = get_session(db, email)
+                        session["identitySource"] = identity_source
+                        self.send_json(session)
                 except Exception as exc:
                     log_exception("/api/session Databricks SQL lookup failed", exc)
-                    self.send_json(fallback_session(email))
+                    self.send_json(fallback_session(email, identity_source))
                 return
             if path == "/api/master-data":
                 with connect() as db:
