@@ -18,13 +18,7 @@ APP_BACKEND = os.getenv("GOVERNANCE_BACKEND", "sqlite").strip().lower()
 DB_PATH = Path(os.getenv("GOVERNANCE_SQLITE_PATH", ROOT / "governance_tool.sqlite"))
 GOVERNANCE_CATALOG = os.getenv("GOVERNANCE_CATALOG", "").strip()
 GOVERNANCE_SCHEMA = os.getenv("GOVERNANCE_SCHEMA", "").strip()
-LOCAL_USER_EMAIL = os.getenv("GOVERNANCE_LOCAL_USER_EMAIL", "kerem.seyid@syngenta.com").strip().lower()
 ADMIN_ROLE_KEYS = {"admin", "data_domain_owner", "domain_delivery_lead", "lynx_pm"}
-STATIC_ADMIN_EMAILS = {
-    "demo.admin@syngenta.com": "Demo Admin",
-    "kerem.seyid@syngenta.com": "Kerem Seyid",
-    "harish.krishnamoorthy@syngenta.com": "Harish Krishnamoorthy",
-}
 
 MASTER_DATA_CONFIG = {
     "domains": {
@@ -931,8 +925,6 @@ def get_session(db: sqlite3.Connection, email: str) -> dict:
     clean_email = email.strip().lower()
     if not re.match(r"^[^@\s]+@syngenta\.com$", clean_email):
         return {"email": clean_email, "role": "requester", "canAdmin": False, "name": "Requester"}
-    if not db:
-        return fallback_session(clean_email)
     user = db.execute(
         """
         SELECT display_name, role_key
@@ -952,20 +944,6 @@ def get_session(db: sqlite3.Connection, email: str) -> dict:
     }
 
 
-def fallback_session(email: str, source: str = "fallback") -> dict:
-    name = STATIC_ADMIN_EMAILS.get(email, email.split("@")[0])
-    can_admin = email in STATIC_ADMIN_EMAILS
-    return {
-        "email": email,
-        "role": "admin" if can_admin else "requester",
-        "canAdmin": can_admin,
-        "canDeleteMasterData": can_admin,
-        "name": name,
-        "sessionWarning": "Session role is using static fallback because Databricks SQL was not reachable.",
-        "identitySource": source,
-    }
-
-
 def log_exception(context: str, exc: Exception) -> None:
     print(f"[ERROR] {context}: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
     traceback.print_exc(file=sys.stderr)
@@ -981,7 +959,6 @@ def resolve_user_email(headers, fallback: str = "") -> tuple[str, str]:
         ("X-Databricks-User-Email", headers.get("X-Databricks-User-Email")),
         ("X-Databricks-User", headers.get("X-Databricks-User")),
         ("fallback", fallback),
-        ("local-default", LOCAL_USER_EMAIL),
     ]
     for source, value in candidates:
         clean_value = str(value or "").strip().lower()
@@ -990,7 +967,7 @@ def resolve_user_email(headers, fallback: str = "") -> tuple[str, str]:
             return clean_value, source
         if clean_value:
             print(f"Ignoring non-email identity from {source}: {clean_value}", flush=True)
-    return LOCAL_USER_EMAIL, "local-default"
+    raise PermissionError("No valid syngenta.com user email was provided by Databricks.")
 
 
 def request_user_email(headers, fallback: str = "") -> str:
@@ -1033,56 +1010,6 @@ def get_master_data(db: sqlite3.Connection) -> dict:
         "domainDeliveryLeads": [user for user in users if user["role_key"] == "domain_delivery_lead"],
         "lynxPms": [user for user in users if user["role_key"] == "lynx_pm"],
         "users": users,
-    }
-
-
-def fallback_master_data() -> dict:
-    users = [
-        {"id": "admin_demo", "name": "Demo Admin", "email": "demo.admin@syngenta.com", "role_key": "admin"},
-        {"id": "admin_kerem", "name": "Kerem Seyid", "email": "kerem.seyid@syngenta.com", "role_key": "admin"},
-        {"id": "admin_harish", "name": "Harish Krishnamoorthy", "email": "harish.krishnamoorthy@syngenta.com", "role_key": "admin"},
-        {"id": "udo_anna", "name": "Anna Khan", "email": "anna.khan@syngenta.com", "role_key": "data_domain_owner"},
-        {"id": "udo_maria", "name": "Maria Rossi", "email": "maria.rossi@syngenta.com", "role_key": "data_domain_owner"},
-        {"id": "ddl_james", "name": "James Silva", "email": "james.silva@syngenta.com", "role_key": "domain_delivery_lead"},
-        {"id": "ddl_nina", "name": "Nina Brown", "email": "nina.brown@syngenta.com", "role_key": "domain_delivery_lead"},
-        {"id": "pm_lynx_maya", "name": "Maya Patel", "email": "maya.patel@syngenta.com", "role_key": "lynx_pm"},
-        {"id": "pm_lynx_sam", "name": "Sam Martin", "email": "sam.martin@syngenta.com", "role_key": "lynx_pm"},
-    ]
-    return {
-        "domains": [{"id": "commercial", "name": "Commercial"}, {"id": "dummy_domain", "name": "Dummy Domain"}],
-        "businessUnits": [{"id": "cp", "name": "CP"}, {"id": "seeds", "name": "Seeds"}, {"id": "vegetables", "name": "Vegetables"}],
-        "productTypes": [{"id": "structured", "name": "Structured"}, {"id": "unstructured", "name": "Unstructured"}, {"id": "mixed", "name": "Mixed"}],
-        "platforms": [{"id": "databricks", "name": "Databricks"}, {"id": "lynx", "name": "Lynx"}, {"id": "both", "name": "Both"}],
-        "priorities": [{"id": "p1", "name": "P1"}, {"id": "p2", "name": "P2"}, {"id": "p3", "name": "P3"}],
-        "stages": [{"id": stage_id, "name": stage_name, "number": stage_number} for stage_id, stage_name, stage_number in STAGES],
-        "statuses": [
-            {"id": "not_started", "name": "Not started"},
-            {"id": "in_review", "name": "In review"},
-            {"id": "in_progress", "name": "In progress"},
-            {"id": "blocked", "name": "Blocked"},
-            {"id": "ready", "name": "Ready"},
-            {"id": "operating", "name": "Operating"},
-            {"id": "on_hold", "name": "On hold"},
-            {"id": "cancelled", "name": "Cancelled"},
-            {"id": "deprecated", "name": "Deprecated"},
-        ],
-        "subdomains": [
-            {"id": "non_transactional_customers", "name": "Non Transactional Customers", "domainId": "commercial", "domainName": "Commercial"},
-            {"id": "pricing_conditions", "name": "Pricing and Conditions", "domainId": "commercial", "domainName": "Commercial"},
-            {"id": "product_market_performance", "name": "Product & Market Performance", "domainId": "commercial", "domainName": "Commercial"},
-            {"id": "sales_commercial_transactions", "name": "Sales & Commercial Transactions", "domainId": "commercial", "domainName": "Commercial"},
-            {"id": "marketing_engagement", "name": "Marketing & Engagement", "domainId": "commercial", "domainName": "Commercial"},
-            {"id": "digital_agronomy_solutions", "name": "Digital & Agronomy Solutions", "domainId": "commercial", "domainName": "Commercial"},
-            {"id": "dummy_subdomain", "name": "Dummy Subdomain", "domainId": "dummy_domain", "domainName": "Dummy Domain"},
-        ],
-        "sourceSystems": [{"id": "sap", "name": "SAP"}, {"id": "salesforce", "name": "Salesforce"}, {"id": "sharepoint", "name": "SharePoint"}, {"id": "databricks", "name": "Databricks"}, {"id": "manual_upload", "name": "Manual upload"}],
-        "scopeOptions": [{"id": "global", "name": "Global", "type": "Global", "parentId": None}, {"id": "europe", "name": "Europe", "type": "Region", "parentId": None}, {"id": "latin_america", "name": "Latin America", "type": "Region", "parentId": None}, {"id": "north_america", "name": "North America", "type": "Region", "parentId": None}, {"id": "amea", "name": "AMEA", "type": "Region", "parentId": None}, {"id": "janz", "name": "JANZ", "type": "Region", "parentId": None}],
-        "buildStatuses": [{"id": "not_started", "name": "Not started"}, {"id": "in_build", "name": "In build"}, {"id": "testing", "name": "Testing"}, {"id": "in_uat", "name": "In UAT"}, {"id": "built", "name": "Built"}, {"id": "blocked", "name": "Blocked"}],
-        "dataDomainOwners": [user for user in users if user["role_key"] == "data_domain_owner"],
-        "domainDeliveryLeads": [user for user in users if user["role_key"] == "domain_delivery_lead"],
-        "lynxPms": [user for user in users if user["role_key"] == "lynx_pm"],
-        "users": users,
-        "masterDataWarning": "Using built-in fallback master data because Databricks SQL was not reachable.",
     }
 
 
@@ -1643,31 +1570,19 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
                 return
             if path == "/api/session":
                 email, identity_source = resolve_user_email(self.headers, query.get("email", [""])[0])
-                try:
-                    with connect() as db:
-                        session = get_session(db, email)
-                        session["identitySource"] = identity_source
-                        self.send_json(session)
-                except Exception as exc:
-                    log_exception("/api/session Databricks SQL lookup failed", exc)
-                    self.send_json(fallback_session(email, identity_source))
+                with connect() as db:
+                    session = get_session(db, email)
+                    session["identitySource"] = identity_source
+                    self.send_json(session)
                 return
             if path == "/api/master-data":
-                try:
-                    with connect() as db:
-                        self.send_json(get_master_data(db))
-                except Exception as exc:
-                    log_exception("/api/master-data Databricks SQL lookup failed", exc)
-                    self.send_json(fallback_master_data())
+                with connect() as db:
+                    self.send_json(get_master_data(db))
                 return
             if path == "/api/requests":
-                try:
-                    with connect() as db:
-                        email = query.get("email", [""])[0]
-                        self.send_json(get_requests_for_user(db, email) if email else get_requests(db))
-                except Exception as exc:
-                    log_exception("/api/requests Databricks SQL lookup failed", exc)
-                    self.send_json([])
+                with connect() as db:
+                    email = query.get("email", [""])[0]
+                    self.send_json(get_requests_for_user(db, email) if email else get_requests(db))
                 return
             if path.startswith("/api/requests/") and path.endswith("/workflow"):
                 request_id = path.split("/")[3]
