@@ -5,6 +5,7 @@ import os
 import re
 import sqlite3
 import sys
+import traceback
 import uuid
 from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -19,6 +20,11 @@ GOVERNANCE_CATALOG = os.getenv("GOVERNANCE_CATALOG", "").strip()
 GOVERNANCE_SCHEMA = os.getenv("GOVERNANCE_SCHEMA", "").strip()
 LOCAL_USER_EMAIL = os.getenv("GOVERNANCE_LOCAL_USER_EMAIL", "kerem.seyid@syngenta.com").strip().lower()
 ADMIN_ROLE_KEYS = {"admin", "data_domain_owner", "domain_delivery_lead", "lynx_pm"}
+STATIC_ADMIN_EMAILS = {
+    "demo.admin@syngenta.com": "Demo Admin",
+    "kerem.seyid@syngenta.com": "Kerem Seyid",
+    "harish.krishnamoorthy@syngenta.com": "Harish Krishnamoorthy",
+}
 
 MASTER_DATA_CONFIG = {
     "domains": {
@@ -925,6 +931,8 @@ def get_session(db: sqlite3.Connection, email: str) -> dict:
     clean_email = email.strip().lower()
     if not re.match(r"^[^@\s]+@syngenta\.com$", clean_email):
         return {"email": clean_email, "role": "requester", "canAdmin": False, "name": "Requester"}
+    if not db:
+        return fallback_session(clean_email)
     user = db.execute(
         """
         SELECT display_name, role_key
@@ -942,6 +950,24 @@ def get_session(db: sqlite3.Connection, email: str) -> dict:
         "canDeleteMasterData": can_delete_master_data,
         "name": user["display_name"] if user else clean_email.split("@")[0],
     }
+
+
+def fallback_session(email: str) -> dict:
+    name = STATIC_ADMIN_EMAILS.get(email, email.split("@")[0])
+    can_admin = email in STATIC_ADMIN_EMAILS
+    return {
+        "email": email,
+        "role": "admin" if can_admin else "requester",
+        "canAdmin": can_admin,
+        "canDeleteMasterData": can_admin,
+        "name": name,
+        "sessionWarning": "Session role is using static fallback because Databricks SQL was not reachable.",
+    }
+
+
+def log_exception(context: str, exc: Exception) -> None:
+    print(f"[ERROR] {context}: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
+    traceback.print_exc(file=sys.stderr)
 
 
 def request_user_email(headers, fallback: str = "") -> str:
@@ -1549,8 +1575,13 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
                 self.send_json({"ok": True, "backend": APP_BACKEND, "database": database})
                 return
             if path == "/api/session":
-                with connect() as db:
-                    self.send_json(get_session(db, request_user_email(self.headers, query.get("email", [""])[0])))
+                email = request_user_email(self.headers, query.get("email", [""])[0])
+                try:
+                    with connect() as db:
+                        self.send_json(get_session(db, email))
+                except Exception as exc:
+                    log_exception("/api/session Databricks SQL lookup failed", exc)
+                    self.send_json(fallback_session(email))
                 return
             if path == "/api/master-data":
                 with connect() as db:
@@ -1568,6 +1599,7 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
                 return
             super().do_GET()
         except Exception as exc:
+            log_exception(f"GET {path}", exc)
             self.send_json({"error": str(exc)}, status=500)
 
     def do_POST(self) -> None:
@@ -1621,6 +1653,7 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
         except ValueError as exc:
             self.send_json({"error": str(exc)}, status=400)
         except Exception as exc:
+            log_exception(f"POST {path}", exc)
             self.send_json({"error": str(exc)}, status=500)
 
     def do_DELETE(self) -> None:
@@ -1643,6 +1676,7 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
                 return
             self.send_error(404)
         except Exception as exc:
+            log_exception(f"DELETE {path}", exc)
             self.send_json({"error": str(exc)}, status=500)
 
     def send_json(self, payload: object, status: int = 200) -> None:
