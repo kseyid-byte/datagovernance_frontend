@@ -944,6 +944,18 @@ def get_session(db: sqlite3.Connection, email: str) -> dict:
     }
 
 
+def identity_only_session(email: str, source: str, error: Exception) -> dict:
+    return {
+        "email": email,
+        "role": "unverified",
+        "canAdmin": False,
+        "canDeleteMasterData": False,
+        "name": email.split("@")[0] if email else "Unknown user",
+        "identitySource": source,
+        "roleLookupError": str(error),
+    }
+
+
 def log_exception(context: str, exc: Exception) -> None:
     print(f"[ERROR] {context}: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
     traceback.print_exc(file=sys.stderr)
@@ -968,6 +980,21 @@ def resolve_user_email(headers, fallback: str = "") -> tuple[str, str]:
         if clean_value:
             print(f"Ignoring non-email identity from {source}: {clean_value}", flush=True)
     raise PermissionError("No valid syngenta.com user email was provided by Databricks.")
+
+
+def log_identity_headers(headers) -> None:
+    header_names = sorted(headers.keys())
+    print(f"Incoming header names: {header_names}", flush=True)
+    for header in [
+        "X-Forwarded-Email",
+        "X-Forwarded-Preferred-Username",
+        "X-Forwarded-User",
+        "X-Databricks-User-Email",
+        "X-Databricks-User",
+    ]:
+        value = headers.get(header)
+        if value:
+            print(f"Identity header {header}: {value}", flush=True)
 
 
 def request_user_email(headers, fallback: str = "") -> str:
@@ -1569,11 +1596,16 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
                 self.send_json({"ok": True, "backend": APP_BACKEND, "database": database})
                 return
             if path == "/api/session":
+                log_identity_headers(self.headers)
                 email, identity_source = resolve_user_email(self.headers, query.get("email", [""])[0])
-                with connect() as db:
-                    session = get_session(db, email)
-                    session["identitySource"] = identity_source
-                    self.send_json(session)
+                try:
+                    with connect() as db:
+                        session = get_session(db, email)
+                        session["identitySource"] = identity_source
+                        self.send_json(session)
+                except Exception as exc:
+                    log_exception("/api/session role lookup failed", exc)
+                    self.send_json(identity_only_session(email, identity_source, exc), status=206)
                 return
             if path == "/api/master-data":
                 with connect() as db:

@@ -66,19 +66,28 @@ const masterCollections = [
 
 async function loadProducts() {
   const response = await fetch("/api/requests");
-  if (!response.ok) throw new Error(`API returned ${response.status}`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || `Requests API returned ${response.status}`);
+  }
   products = await response.json();
 }
 
 async function loadMasterData() {
   const response = await fetch("/api/master-data");
-  if (!response.ok) throw new Error(`API returned ${response.status}`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || `Master data API returned ${response.status}`);
+  }
   masterData = await response.json();
 }
 
 async function loadSession() {
   const response = await fetch("/api/session");
-  if (!response.ok) throw new Error(`Session API returned ${response.status}`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || `Session API returned ${response.status}`);
+  }
   currentUser = await response.json();
 }
 
@@ -869,5 +878,5 @@ Promise.resolve()
   })
   .catch((error) => {
     console.error("App failed to load", error);
-    alert("The local server is not responding. Start it with: python3 server.py 8502");
+    alert(`Application failed to load: ${error.message}`);
   });
