@@ -1,6 +1,7 @@
 command:
   - python
   - app.py
+  - $DATABRICKS_APP_PORT
 
 env:
   - name: GOVERNANCE_BACKEND

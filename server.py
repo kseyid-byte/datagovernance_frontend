@@ -1655,6 +1655,10 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
 
 
 def main() -> None:
+    print("Starting Governance Input Tool", flush=True)
+    print(f"Startup argv: {sys.argv}", flush=True)
+    print(f"Startup DATABRICKS_APP_PORT: {os.getenv('DATABRICKS_APP_PORT', '')}", flush=True)
+    print(f"Startup PORT: {os.getenv('PORT', '')}", flush=True)
     init_db()
     port_value = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1].isdigit() else os.getenv("DATABRICKS_APP_PORT", os.getenv("PORT", "8502"))
     port = int(port_value)

@@ -9,7 +9,7 @@ This repository is ready to deploy as a Databricks App backed by Databricks SQL.
 - `requirements.txt` includes the Databricks SQL connector and SDK.
 - `server.py` reads `DATABRICKS_APP_PORT`, so Databricks can assign the runtime port.
 
-Databricks Apps requires `app.yaml` at the repository root when a custom command or environment values are needed. The command should start `python app.py`; `server.py` reads `DATABRICKS_APP_PORT` from the runtime environment.
+Databricks Apps requires `app.yaml` at the repository root when a custom command or environment values are needed. The command starts `python app.py $DATABRICKS_APP_PORT`; `server.py` also falls back to the `DATABRICKS_APP_PORT` runtime environment variable if the command argument is not numeric.
 
 ## Current backend mode
 
