@@ -229,6 +229,16 @@ async function openProductWorkflow(requestId) {
   const select = document.getElementById("adminProductSelect");
   if (select) select.value = requestId;
   await loadWorkflow(requestId);
+  scrollAdminToTop();
+}
+
+function scrollAdminToTop() {
+  requestAnimationFrame(() => {
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+    document.querySelector(".main")?.scrollTo?.(0, 0);
+  });
 }
 
 function stageNameById(stageId) {
