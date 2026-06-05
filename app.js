@@ -373,6 +373,7 @@ function renderWorkflow() {
   currentWorkflow.stages.forEach((stage) => {
     const form = document.createElement("form");
     form.className = `stage-panel${stage.isCurrent ? " current" : ""}${stage.complete ? " complete" : ""}${!stage.canSubmit ? " locked" : ""}`;
+    form.id = `stagePanel-${stage.stageId}`;
     form.dataset.stageId = stage.stageId;
     form.innerHTML = `
       <div class="stage-panel-header">
@@ -401,27 +402,28 @@ function renderWorkflow() {
 
 function renderWorkflowProgress() {
   const stages = currentWorkflow.stages || [];
-  const currentStageId = currentWorkflow.request.stageId;
-  const currentNumber = stageNumberById(currentStageId, stages.map((stage) => ({ id: stage.stageId, number: stage.number })));
   const wrapper = document.createElement("section");
-  wrapper.className = "workflow-progress-card";
-  wrapper.style.setProperty("--workflow-progress", `${progressPercent(currentStageId, stages.map((stage) => ({ id: stage.stageId, number: stage.number })))}%`);
-  wrapper.innerHTML = `
-    <div class="workflow-progress-header">
-      <strong>${escapeHtml(currentWorkflow.request.stage)}</strong>
-      <span>Stage ${currentNumber} of ${stages.length}</span>
-    </div>
-    <div class="workflow-progress-track" aria-label="Current product workflow progress"></div>
-    <div class="workflow-progress-labels">
-      ${stages
-        .map(
-          (stage) =>
-            `<span class="${stage.number <= currentNumber ? "done" : ""}">${escapeHtml(stage.name)}</span>`
-        )
-        .join("")}
-    </div>
-  `;
+  wrapper.className = "workflow-stage-rail";
+  wrapper.setAttribute("aria-label", "Workflow stage navigation");
+  stages.forEach((stage) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `workflow-stage-button${stage.complete ? " complete" : ""}${stage.isCurrent ? " current" : ""}${!stage.canSubmit ? " locked" : ""}`;
+    button.setAttribute("aria-current", stage.isCurrent ? "step" : "false");
+    button.innerHTML = `
+      <span class="workflow-stage-indicator" aria-hidden="true"></span>
+      <span>${escapeHtml(stage.name)}</span>
+    `;
+    button.addEventListener("click", () => scrollToWorkflowStage(stage.stageId));
+    wrapper.appendChild(button);
+  });
   return wrapper;
+}
+
+function scrollToWorkflowStage(stageId) {
+  const panel = document.getElementById(`stagePanel-${stageId}`);
+  if (!panel) return;
+  panel.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function stageStatusText(stage) {
