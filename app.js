@@ -869,13 +869,16 @@ document.getElementById("adminProductSelect").addEventListener("change", (event)
 document.getElementById("masterDataCollection").addEventListener("change", renderMasterData);
 document.getElementById("masterDataForm").addEventListener("submit", handleMasterDataSubmit);
 
-Promise.resolve()
-  .then(loadSession)
-  .then(() => Promise.all([loadMasterData(), loadProducts()]))
-  .then(() => {
-    populateRequestSelects();
-    render();
-  })
+async function initializeApp() {
+  await loadSession();
+  renderAccess();
+
+  await Promise.all([loadMasterData(), loadProducts()]);
+  populateRequestSelects();
+  render();
+}
+
+initializeApp()
   .catch((error) => {
     console.error("App failed to load", error);
     alert(`Application failed to load: ${error.message}`);
