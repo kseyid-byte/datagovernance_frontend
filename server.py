@@ -947,7 +947,7 @@ def get_session(db: sqlite3.Connection, email: str) -> dict:
 def identity_only_session(email: str, source: str, error: Exception) -> dict:
     return {
         "email": email,
-        "role": "unverified",
+        "role": "requester",
         "canAdmin": False,
         "canDeleteMasterData": False,
         "name": email.split("@")[0] if email else "Unknown user",
