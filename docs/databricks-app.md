@@ -20,7 +20,7 @@ GOVERNANCE_BACKEND: databricks_sql
 GOVERNANCE_CATALOG: venus_forge_dev
 GOVERNANCE_SCHEMA: app_product_details
 DATABRICKS_WAREHOUSE_ID:
-  valueFrom: sql_warehouse
+  valueFrom: sql-warehouse
 ```
 
 This stores requests, workflow answers, master data, and timeline events in Unity Catalog Delta tables.
@@ -37,7 +37,7 @@ Before deploying the SQL-backed app:
 
 1. Run `sql/databricks_schema.sql` after replacing `${catalog}.${schema}` with `venus_forge_dev.app_product_details`.
 2. Run `sql/seed_master_data.sql` with the same replacement.
-3. Add a Databricks App SQL warehouse resource using resource key `sql_warehouse`.
+3. Add a Databricks App SQL warehouse resource using the default resource key `sql-warehouse`.
 4. Grant the app service principal `USE CATALOG`, `USE SCHEMA`, and table read/write permissions on `venus_forge_dev.app_product_details`.
 
 Use a Databricks App resource for the SQL warehouse instead of hardcoding sensitive or environment-specific values.
