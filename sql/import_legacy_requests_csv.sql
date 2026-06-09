@@ -10,14 +10,54 @@
 USE CATALOG venus_forge_dev;
 USE SCHEMA app_control_tables;
 
+-- Optional cleanup if a previous run parsed the CSV incorrectly.
+-- Run this before rerunning the corrected import if you see shifted request IDs/columns.
+-- It removes only legacy-style imported rows, not app-created REQ-001 style requests.
+/*
+DELETE FROM request_timeline
+WHERE timeline_id LIKE 'legacy-import-%';
+
+DELETE FROM data_product_requests_new
+WHERE request_number RLIKE '^REQ-[0-9]{8}$'
+   OR request_id NOT RLIKE '^[0-9]+$';
+*/
+
 CREATE OR REPLACE TEMP VIEW legacy_requests_csv AS
 SELECT *
 FROM read_files(
   '/Volumes/venus_forge_dev/app_control_tables/<volume_name>/New_Query_2026_06_09_20_50_18.csv',
   format => 'csv',
   header => true,
-  inferSchema => false
+  inferSchema => false,
+  multiLine => true,
+  quote => '"',
+  escape => '"',
+  mode => 'FAILFAST'
 );
+
+-- Stop here and validate before running the MERGE statements.
+-- Expected result for New_Query_2026_06_09_20_50_18.csv:
+--   parsed_rows = 153
+--   bad_request_id_rows = 0
+--   bad_request_number_rows = 0
+SELECT
+  COUNT(*) AS parsed_rows,
+  SUM(CASE WHEN request_id IS NULL OR NOT (request_id RLIKE '^[0-9]+$') THEN 1 ELSE 0 END) AS bad_request_id_rows,
+  SUM(CASE WHEN business_request_id IS NULL OR NOT (business_request_id RLIKE '^REQ-[0-9]{8}$') THEN 1 ELSE 0 END) AS bad_request_number_rows
+FROM legacy_requests_csv;
+
+SELECT
+  request_id,
+  business_request_id,
+  data_object,
+  requestor,
+  status,
+  commercial_domain,
+  created_at,
+  updated_at
+FROM legacy_requests_csv
+ORDER BY CAST(request_id AS INT)
+LIMIT 20;
 
 CREATE OR REPLACE TEMP VIEW legacy_requests_normalized AS
 SELECT
