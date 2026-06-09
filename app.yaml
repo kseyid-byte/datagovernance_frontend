@@ -9,6 +9,6 @@ env:
   - name: GOVERNANCE_CATALOG
     value: venus_forge_dev
   - name: GOVERNANCE_SCHEMA
-    value: app_product_details
+    value: app_control_tables
   - name: DATABRICKS_WAREHOUSE_ID
     valueFrom: sql-warehouse
