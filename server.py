@@ -414,14 +414,14 @@ def ensure_column(db: sqlite3.Connection, table: str, column: str, definition: s
 
 def migrate_request_table(db: sqlite3.Connection) -> None:
     old_exists = db.execute(
-        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'data_product_requests'"
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'data_product_requests_new'"
     ).fetchone()
     if old_exists:
-        db.execute("ALTER TABLE data_product_requests RENAME TO data_product_requests_old")
+        db.execute("ALTER TABLE data_product_requests_new RENAME TO data_product_requests_new_old")
 
     db.execute(
         """
-        CREATE TABLE data_product_requests (
+        CREATE TABLE data_product_requests_new (
           request_id TEXT PRIMARY KEY,
           request_number TEXT NOT NULL UNIQUE,
           title TEXT NOT NULL,
@@ -461,14 +461,14 @@ def migrate_request_table(db: sqlite3.Connection) -> None:
     )
 
     if old_exists:
-        old_columns = {row["name"] for row in db.execute("PRAGMA table_info(data_product_requests_old)").fetchall()}
+        old_columns = {row["name"] for row in db.execute("PRAGMA table_info(data_product_requests_new_old)").fetchall()}
 
         def col(name: str, fallback: str) -> str:
             return name if name in old_columns else fallback
 
         db.execute(
             f"""
-            INSERT OR IGNORE INTO data_product_requests (
+            INSERT OR IGNORE INTO data_product_requests_new (
               request_id, request_number, title, description, product_type_id, target_platform_id,
               priority_id, lead_domain_id, business_unit_id, scope_id, requester_name,
               requester_email, initiative, expected_date, delivery_date, delivery_lead, effort,
@@ -512,10 +512,10 @@ def migrate_request_table(db: sqlite3.Connection) -> None:
               {col('note', "''")},
               created_at,
               updated_at
-            FROM data_product_requests_old
+            FROM data_product_requests_new_old
             """
         )
-        db.execute("DROP TABLE data_product_requests_old")
+        db.execute("DROP TABLE data_product_requests_new_old")
 
 
 def create_workflow_tables(db: sqlite3.Connection) -> None:
@@ -660,7 +660,7 @@ def seed_commercial_subdomains(db: sqlite3.Connection) -> None:
     }
     for old_id, new_id in replacements.items():
         db.execute(
-            "UPDATE data_product_requests SET lead_subdomain_id = ? WHERE lead_subdomain_id = ?",
+            "UPDATE data_product_requests_new SET lead_subdomain_id = ? WHERE lead_subdomain_id = ?",
             (new_id, old_id),
         )
         db.execute(
@@ -713,7 +713,7 @@ def seed_stage_requirements(db: sqlite3.Connection) -> None:
     )
     db.execute(
         """
-        UPDATE data_product_requests
+        UPDATE data_product_requests_new
         SET delivery_lead = 'ddl_james'
         WHERE delivery_lead IS NOT NULL
           AND delivery_lead <> ''
@@ -730,11 +730,11 @@ def seed_stage_requirements(db: sqlite3.Connection) -> None:
           AND answer_value GLOB '*[^0-9]*'
         """
     )
-    db.execute("UPDATE data_product_requests SET effort = NULL WHERE effort GLOB '*[^0-9]*'")
+    db.execute("UPDATE data_product_requests_new SET effort = NULL WHERE effort GLOB '*[^0-9]*'")
 
 
 def seed_requests(db: sqlite3.Connection) -> None:
-    existing = db.execute("SELECT COUNT(*) AS count FROM data_product_requests").fetchone()["count"]
+    existing = db.execute("SELECT COUNT(*) AS count FROM data_product_requests_new").fetchone()["count"]
     if existing:
         return
 
@@ -768,7 +768,7 @@ def seed_missing_timelines(db: sqlite3.Connection) -> None:
     rows = db.execute(
         """
         SELECT request_id, created_at
-        FROM data_product_requests r
+        FROM data_product_requests_new r
         WHERE NOT EXISTS (
           SELECT 1 FROM request_timeline t WHERE t.request_id = r.request_id
         )
@@ -782,7 +782,7 @@ def backfill_demo_stage_answers(db: sqlite3.Connection) -> None:
     demo_rows = db.execute(
         """
         SELECT request_id, request_number, current_stage_id, stage_number
-        FROM data_product_requests r
+        FROM data_product_requests_new r
         JOIN md_stages s ON s.stage_id = r.current_stage_id
         WHERE request_number BETWEEN 'REQ-001' AND 'REQ-006'
         """
@@ -841,7 +841,7 @@ def demo_answer(requirement: sqlite3.Row) -> str:
 
 
 def next_request_number(db: sqlite3.Connection) -> str:
-    count = db.execute("SELECT COUNT(*) AS count FROM data_product_requests").fetchone()["count"]
+    count = db.execute("SELECT COUNT(*) AS count FROM data_product_requests_new").fetchone()["count"]
     return f"REQ-{count + 1:03d}"
 
 
@@ -871,7 +871,7 @@ def insert_request(db: sqlite3.Connection, payload: dict, timestamp: str | None 
     domain_id = resolve_domain_id(db, payload.get("domain"))
     db.execute(
         """
-        INSERT INTO data_product_requests (
+        INSERT INTO data_product_requests_new (
           request_id, request_number, title, description, product_type_id, target_platform_id,
           priority_id, lead_domain_id, business_unit_id, scope_id, requester_name,
           requester_email, initiative, expected_date, delivery_date, delivery_lead, effort,
@@ -1162,7 +1162,7 @@ def request_select_sql() -> str:
             ),
             r.created_at
           ) AS current_stage_entered_at
-        FROM data_product_requests r
+        FROM data_product_requests_new r
         JOIN md_domains d ON d.domain_id = r.lead_domain_id
         LEFT JOIN md_business_units bu ON bu.business_unit_id = r.business_unit_id
         JOIN md_product_types pt ON pt.product_type_id = r.product_type_id
@@ -1250,7 +1250,7 @@ def get_stage_requirements(db: sqlite3.Connection, request_id: str, stage_id: st
             ELSE COALESCE(ans.answer_value, '')
           END AS answer_value
         FROM md_stage_requirements req
-        JOIN data_product_requests r
+        JOIN data_product_requests_new r
           ON r.request_id = ?
         LEFT JOIN request_stage_answers ans
           ON ans.requirement_id = req.requirement_id
@@ -1297,12 +1297,12 @@ def save_workflow_answers(db: sqlite3.Connection, request_id: str, payload: dict
 
     status_id = payload.get("statusId")
     if status_id:
-        db.execute("UPDATE data_product_requests SET status_id = ? WHERE request_id = ?", (status_id, request_id))
+        db.execute("UPDATE data_product_requests_new SET status_id = ? WHERE request_id = ?", (status_id, request_id))
         add_timeline(db, request_id, "status_changed", "Status updated", f"Status changed to {status_id}.", stage_id=stage_id, status_id=status_id, created_by=payload.get("updatedBy", "admin"), created_at=timestamp)
 
     add_timeline(db, request_id, "answers_saved", f"{stage['name']} saved", "Stage information was saved.", stage_id=stage_id, status_id=status_id, created_by=payload.get("updatedBy", "admin"), created_at=timestamp)
     advanced = advance_if_complete(db, request_id, stage_id, timestamp)
-    db.execute("UPDATE data_product_requests SET updated_at = ? WHERE request_id = ?", (timestamp, request_id))
+    db.execute("UPDATE data_product_requests_new SET updated_at = ? WHERE request_id = ?", (timestamp, request_id))
     result = get_workflow(db, request_id)
     result["advanced"] = advanced
     return result
@@ -1358,12 +1358,12 @@ def save_request_status(db: sqlite3.Connection, request_id: str, payload: dict) 
     exists = db.execute("SELECT 1 FROM md_statuses WHERE status_id = ?", (status_id,)).fetchone()
     if not exists:
         raise ValueError("statusId is not valid")
-    current = db.execute("SELECT current_stage_id FROM data_product_requests WHERE request_id = ?", (request_id,)).fetchone()
+    current = db.execute("SELECT current_stage_id FROM data_product_requests_new WHERE request_id = ?", (request_id,)).fetchone()
     if not current:
         raise ValueError("request not found")
     db.execute(
         """
-        UPDATE data_product_requests
+        UPDATE data_product_requests_new
         SET status_id = ?,
             status_change_reason = ?,
             last_status_change_date = ?,
@@ -1406,14 +1406,14 @@ def update_structured_field(db: sqlite3.Connection, request_id: str, key: str, v
     }
     column = field_map.get(key)
     if column:
-        db.execute(f"UPDATE data_product_requests SET {column} = ? WHERE request_id = ?", (value, request_id))
+        db.execute(f"UPDATE data_product_requests_new SET {column} = ? WHERE request_id = ?", (value, request_id))
 
 
 def reconcile_domain_subdomain(db: sqlite3.Connection, request_id: str) -> None:
     row = db.execute(
         """
         SELECT r.lead_domain_id, r.lead_subdomain_id, s.domain_id AS subdomain_domain_id
-        FROM data_product_requests r
+        FROM data_product_requests_new r
         LEFT JOIN md_subdomains s ON s.subdomain_id = r.lead_subdomain_id
         WHERE r.request_id = ?
         """,
@@ -1423,7 +1423,7 @@ def reconcile_domain_subdomain(db: sqlite3.Connection, request_id: str) -> None:
         return
     if row["lead_domain_id"] == row["subdomain_domain_id"]:
         return
-    db.execute("UPDATE data_product_requests SET lead_subdomain_id = NULL WHERE request_id = ?", (request_id,))
+    db.execute("UPDATE data_product_requests_new SET lead_subdomain_id = NULL WHERE request_id = ?", (request_id,))
     db.execute(
         """
         DELETE FROM request_stage_answers
@@ -1438,7 +1438,7 @@ def advance_if_complete(db: sqlite3.Connection, request_id: str, saved_stage_id:
     current = db.execute(
         """
         SELECT r.current_stage_id, s.stage_number
-        FROM data_product_requests r
+        FROM data_product_requests_new r
         JOIN md_stages s ON s.stage_id = r.current_stage_id
         WHERE r.request_id = ?
         """,
@@ -1472,14 +1472,14 @@ def advance_if_complete(db: sqlite3.Connection, request_id: str, saved_stage_id:
         (current["stage_number"],),
     ).fetchone()
     if not next_stage:
-        db.execute("UPDATE data_product_requests SET status_id = 'operating' WHERE request_id = ?", (request_id,))
+        db.execute("UPDATE data_product_requests_new SET status_id = 'operating' WHERE request_id = ?", (request_id,))
         add_timeline(db, request_id, "completed", "Workflow completed", "All stages are complete.", stage_id=saved_stage_id, status_id="operating", created_by="admin", created_at=timestamp)
         return False
 
     next_status = "operating" if next_stage["stage_id"] == "operate" else "in_review"
     db.execute(
         """
-        UPDATE data_product_requests
+        UPDATE data_product_requests_new
         SET current_stage_id = ?, status_id = ?, note = 'Advanced automatically after required information was completed.'
         WHERE request_id = ?
         """,

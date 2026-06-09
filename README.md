@@ -126,6 +126,6 @@ It contains only the local app tables currently used by the UI and API:
 - `md_scope_options`
 - `md_build_statuses`
 - `md_stage_requirements`
-- `data_product_requests`
+- `data_product_requests_new`
 - `request_stage_answers`
 - `request_timeline`

@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS md_build_statuses (
   build_status_name TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS data_product_requests (
+CREATE TABLE IF NOT EXISTS data_product_requests_new (
   request_id TEXT PRIMARY KEY,
   request_number TEXT NOT NULL UNIQUE,
   title TEXT NOT NULL,

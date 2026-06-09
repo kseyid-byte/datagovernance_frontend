@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS ${catalog}.${schema}.md_stage_requirements (
 )
 USING DELTA;
 
-CREATE TABLE IF NOT EXISTS ${catalog}.${schema}.data_product_requests (
+CREATE TABLE IF NOT EXISTS ${catalog}.${schema}.data_product_requests_new (
   request_id STRING NOT NULL,
   request_number STRING NOT NULL,
   title STRING NOT NULL,
