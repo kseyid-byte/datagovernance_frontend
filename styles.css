@@ -309,11 +309,89 @@ p {
   width: 100%;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.loading-pill,
+.inline-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.loading-pill {
+  min-height: 36px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  color: white;
+}
+
+.spinner {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 999px;
+  animation: spin 0.75s linear infinite;
+}
+
+button .spinner {
+  width: 14px;
+  height: 14px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.skeleton-line {
+  display: block;
+  width: 72%;
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #e2e8f0 25%, #f8fafc 45%, #e2e8f0 65%);
+  background-size: 220% 100%;
+  animation: shimmer 1.25s ease-in-out infinite;
+}
+
+.skeleton-line.wide {
+  width: 92%;
+}
+
+.skeleton-line.short {
+  width: 48%;
+}
+
+@keyframes shimmer {
+  to {
+    background-position: -220% 0;
+  }
+}
+
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
   margin: 18px 0;
+}
+
+.metric-grid.is-loading .metric-card,
+.rail.is-loading .rail-card {
+  opacity: 0.78;
 }
 
 .metric-card {
@@ -442,6 +520,22 @@ p {
   white-space: nowrap;
 }
 
+.rail-card-skeleton {
+  pointer-events: none;
+  gap: 12px;
+}
+
+.empty-state {
+  padding: 14px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.rail .empty-state {
+  grid-column: 1 / -1;
+}
+
 .dashboard-grid {
   display: block;
 }
@@ -463,7 +557,23 @@ p {
 }
 
 .table-wrap {
+  position: relative;
   overflow-x: auto;
+}
+
+.table-wrap.is-refreshing::after {
+  content: "Refreshing products...";
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.1);
 }
 
 table {
@@ -477,6 +587,10 @@ td {
   padding: 12px 10px;
   text-align: left;
   vertical-align: top;
+}
+
+.loading-row td {
+  padding: 28px 10px;
 }
 
 th {
@@ -706,6 +820,10 @@ textarea {
   line-height: 1.45;
 }
 
+.admin-product-card.is-loading {
+  min-height: 86px;
+}
+
 .admin-status-field {
   margin: 12px 0;
   color: var(--text);
@@ -719,6 +837,15 @@ textarea {
 #workflowFields {
   display: grid;
   gap: 14px;
+}
+
+#workflowFields.is-loading {
+  opacity: 0.78;
+}
+
+.loading-panel {
+  min-height: 170px;
+  align-content: start;
 }
 
 .workflow-stage-rail {

@@ -55,7 +55,13 @@
                 products to Databricks and Lynx.
               </p>
             </div>
-            <button class="primary-action" data-view="new-request">Create request</button>
+            <div class="header-actions">
+              <span class="loading-pill" id="overviewLoading" hidden>
+                <span class="spinner" aria-hidden="true"></span>
+                <span class="loading-text">Loading products</span>
+              </span>
+              <button class="primary-action" data-view="new-request">Create request</button>
+            </div>
           </header>
 
           <section class="metric-grid" aria-label="Portfolio metrics">

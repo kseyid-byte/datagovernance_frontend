@@ -5,12 +5,21 @@ let currentWorkflow = null;
 let activeStageId = "";
 let activeView = "overview";
 let activeWorkflowRequestId = "";
+let productsLoaded = false;
 let currentUser = {
   email: "",
   role: "requester",
   canAdmin: false,
   canDeleteMasterData: false,
   name: "Requester",
+};
+const loadingState = {
+  masterData: false,
+  dashboard: false,
+  products: false,
+  workflow: false,
+  savingWorkflow: false,
+  submittingRequest: false,
 };
 const tableFilters = {};
 const stageDescriptions = {
@@ -65,31 +74,104 @@ const masterCollections = [
   },
 ];
 
-async function loadProducts() {
-  const response = await fetch("/api/requests");
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.error || `Requests API returned ${response.status}`);
-  }
-  products = await response.json();
+function setLoading(key, value) {
+  loadingState[key] = value;
+  updateLoadingIndicators();
 }
 
-async function loadMasterData() {
-  const response = await fetch("/api/master-data");
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.error || `Master data API returned ${response.status}`);
-  }
-  masterData = await response.json();
+function isOverviewLoading() {
+  return loadingState.masterData || loadingState.dashboard || loadingState.products;
 }
 
-async function loadDashboard() {
-  const response = await fetch("/api/dashboard");
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.error || `Dashboard API returned ${response.status}`);
+function loadingMarkup(message) {
+  return `<span class="spinner" aria-hidden="true"></span><span>${escapeHtml(message)}</span>`;
+}
+
+function updateLoadingIndicators() {
+  const overviewLoading = document.getElementById("overviewLoading");
+  if (overviewLoading) {
+    overviewLoading.hidden = !isOverviewLoading();
+    const text = overviewLoading.querySelector(".loading-text");
+    if (text) {
+      text.textContent = loadingState.masterData
+        ? "Loading setup"
+        : loadingState.products
+          ? "Loading products"
+          : "Refreshing metrics";
+    }
   }
-  dashboard = await response.json();
+
+  document.querySelector(".metric-grid")?.classList.toggle("is-loading", loadingState.dashboard);
+  document.querySelector(".metric-grid")?.setAttribute("aria-busy", loadingState.dashboard ? "true" : "false");
+  document.getElementById("processRail")?.classList.toggle("is-loading", loadingState.dashboard || loadingState.masterData);
+  document.querySelector(".table-wrap")?.classList.toggle("is-refreshing", loadingState.products && productsLoaded);
+  document.querySelector(".table-wrap")?.setAttribute("aria-busy", loadingState.products ? "true" : "false");
+
+  const adminSelect = document.getElementById("adminProductSelect");
+  if (adminSelect) adminSelect.disabled = loadingState.workflow || loadingState.savingWorkflow;
+  document.getElementById("workflowFields")?.classList.toggle(
+    "is-loading",
+    loadingState.workflow || loadingState.savingWorkflow
+  );
+  document.getElementById("adminProductCard")?.classList.toggle("is-loading", loadingState.workflow);
+}
+
+function setButtonBusy(button, busy, busyText = "Working...") {
+  if (!button) return;
+  if (busy) {
+    if (!button.dataset.defaultText) button.dataset.defaultText = button.textContent;
+    button.disabled = true;
+    button.innerHTML = loadingMarkup(busyText);
+    return;
+  }
+  button.disabled = false;
+  if (button.dataset.defaultText) {
+    button.textContent = button.dataset.defaultText;
+    delete button.dataset.defaultText;
+  }
+}
+
+async function loadProducts({ showLoading = true } = {}) {
+  if (showLoading) setLoading("products", true);
+  try {
+    const response = await fetch("/api/requests");
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || `Requests API returned ${response.status}`);
+    }
+    products = await response.json();
+    productsLoaded = true;
+  } finally {
+    if (showLoading) setLoading("products", false);
+  }
+}
+
+async function loadMasterData({ showLoading = true } = {}) {
+  if (showLoading) setLoading("masterData", true);
+  try {
+    const response = await fetch("/api/master-data");
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || `Master data API returned ${response.status}`);
+    }
+    masterData = await response.json();
+  } finally {
+    if (showLoading) setLoading("masterData", false);
+  }
+}
+
+async function loadDashboard({ showLoading = true } = {}) {
+  if (showLoading) setLoading("dashboard", true);
+  try {
+    const response = await fetch("/api/dashboard");
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || `Dashboard API returned ${response.status}`);
+    }
+    dashboard = await response.json();
+  } finally {
+    if (showLoading) setLoading("dashboard", false);
+  }
 }
 
 async function loadSession() {
@@ -102,7 +184,14 @@ async function loadSession() {
 }
 
 async function refreshOverviewData() {
-  await Promise.all([loadDashboard(), loadProducts()]);
+  setLoading("dashboard", true);
+  setLoading("products", true);
+  try {
+    await Promise.all([loadDashboard({ showLoading: false }), loadProducts({ showLoading: false })]);
+  } finally {
+    setLoading("dashboard", false);
+    setLoading("products", false);
+  }
 }
 
 function setView(view) {
@@ -173,6 +262,23 @@ function renderRail() {
   const stages = masterData.stages || [];
   const totalProducts = dashboard.total || products.length || 0;
 
+  if (!stages.length && (loadingState.masterData || loadingState.dashboard)) {
+    rail.innerHTML = Array.from({ length: 8 }, (_, index) => `
+      <div class="rail-card rail-card-skeleton" aria-hidden="true">
+        <span class="rail-card-step">Stage ${index + 1}</span>
+        <span class="skeleton-line wide"></span>
+        <span class="skeleton-line"></span>
+        <span class="skeleton-line short"></span>
+      </div>
+    `).join("");
+    return;
+  }
+
+  if (!stages.length) {
+    rail.innerHTML = `<div class="empty-state">No governance stages are configured.</div>`;
+    return;
+  }
+
   stages.forEach((stage) => {
     const count = dashboard.stageCounts?.[stage.id] ?? products.filter((product) => product.stageId === stage.id).length;
     const percent = totalProducts ? Math.round((count / totalProducts) * 100) : 0;
@@ -213,6 +319,10 @@ function renderTable() {
   document.getElementById("pipelineSubtitle").textContent = activeStageId
     ? `${visible.length} product${visible.length === 1 ? "" : "s"} in this stage.`
     : "All captured products across the governance process.";
+  if (loadingState.products && !productsLoaded) {
+    rows.innerHTML = `<tr class="loading-row"><td colspan="8"><div class="inline-loading">${loadingMarkup("Loading product requests from Databricks...")}</div></td></tr>`;
+    return;
+  }
   if (!visible.length) {
     rows.innerHTML = `<tr><td colspan="8">No products match the current filters.</td></tr>`;
     return;
@@ -278,6 +388,7 @@ function render() {
   renderTable();
   renderAdminOptions();
   if (activeView === "master-data") renderMasterData();
+  updateLoadingIndicators();
 }
 
 function renderAccess() {
@@ -343,6 +454,10 @@ function renderAdminOptions() {
 async function renderAdmin() {
   renderAdminOptions();
   const select = document.getElementById("adminProductSelect");
+  if (loadingState.products && !productsLoaded) {
+    renderWorkflowLoading("Loading product list...");
+    return;
+  }
   if (!select.value && products[0]) select.value = products[0].requestId;
   if (!select.value) {
     document.getElementById("adminProductCard").innerHTML = "No products available.";
@@ -355,12 +470,47 @@ async function renderAdmin() {
 
 async function loadWorkflow(requestId) {
   activeWorkflowRequestId = requestId;
-  const response = await fetch(`/api/requests/${requestId}/workflow`);
-  if (!response.ok) throw new Error(`Workflow API returned ${response.status}`);
-  const workflow = await response.json();
-  if (activeWorkflowRequestId !== requestId) return;
-  currentWorkflow = workflow;
-  renderWorkflow();
+  setLoading("workflow", true);
+  renderWorkflowLoading("Loading selected product workflow...");
+  try {
+    const response = await fetch(`/api/requests/${requestId}/workflow`);
+    if (!response.ok) throw new Error(`Workflow API returned ${response.status}`);
+    const workflow = await response.json();
+    if (activeWorkflowRequestId !== requestId) return;
+    currentWorkflow = workflow;
+    renderWorkflow();
+  } catch (error) {
+    if (activeWorkflowRequestId === requestId) {
+      renderWorkflowError(error);
+    }
+    console.error("Failed to load workflow", error);
+  } finally {
+    if (activeWorkflowRequestId === requestId) {
+      setLoading("workflow", false);
+    }
+  }
+}
+
+function renderWorkflowLoading(message) {
+  document.getElementById("adminProductCard").innerHTML = `<div class="inline-loading">${loadingMarkup(message)}</div>`;
+  document.getElementById("timelineList").innerHTML = `<div class="inline-loading">${loadingMarkup("Loading timeline...")}</div>`;
+  document.getElementById("workflowFields").innerHTML = `
+    <section class="stage-panel loading-panel">
+      <div class="inline-loading">${loadingMarkup("Preparing workflow stages...")}</div>
+      <span class="skeleton-line wide"></span>
+      <span class="skeleton-line"></span>
+      <span class="skeleton-line short"></span>
+    </section>
+  `;
+  document.getElementById("workflowMessage").textContent = "";
+}
+
+function renderWorkflowError(error) {
+  const message = error.message || "Workflow could not be loaded.";
+  document.getElementById("adminProductCard").innerHTML = `<div class="empty-state">${escapeHtml(message)}</div>`;
+  document.getElementById("timelineList").innerHTML = "";
+  document.getElementById("workflowFields").innerHTML = "";
+  document.getElementById("workflowMessage").textContent = message;
 }
 
 function renderWorkflow() {
@@ -592,6 +742,7 @@ async function handleWorkflowSubmit(event) {
   if (!currentWorkflow) return;
 
   const form = event.currentTarget;
+  const submitButton = form.querySelector('button[type="submit"]');
   const stageId = form.dataset.stageId;
   const stage = currentWorkflow.stages.find((item) => item.stageId === stageId);
   const data = new FormData(form);
@@ -606,6 +757,9 @@ async function handleWorkflowSubmit(event) {
 
   const status = document.getElementById("workflowStatusSelect")?.value || "";
   try {
+    setLoading("savingWorkflow", true);
+    setButtonBusy(submitButton, true, "Saving stage...");
+    document.getElementById("workflowMessage").textContent = "Saving stage and refreshing dashboard...";
     const response = await fetch(`/api/requests/${currentWorkflow.request.requestId}/answers`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-User-Email": currentUser.email },
@@ -626,6 +780,9 @@ async function handleWorkflowSubmit(event) {
   } catch (error) {
     console.error("Failed to save workflow", error);
     document.getElementById("workflowMessage").textContent = error.message || "Workflow could not be saved.";
+  } finally {
+    setLoading("savingWorkflow", false);
+    setButtonBusy(submitButton, false);
   }
 }
 
@@ -633,7 +790,11 @@ async function handleStatusSave() {
   if (!currentWorkflow) return;
   const statusId = document.getElementById("workflowStatusSelect")?.value || "";
   const statusChangeReason = document.getElementById("workflowStatusReason")?.value || "";
+  const saveButton = document.getElementById("saveWorkflowStatus");
   try {
+    setLoading("savingWorkflow", true);
+    setButtonBusy(saveButton, true, "Saving status...");
+    document.getElementById("workflowMessage").textContent = "Saving status and refreshing dashboard...";
     const response = await fetch(`/api/requests/${currentWorkflow.request.requestId}/status`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-User-Email": currentUser.email },
@@ -651,6 +812,9 @@ async function handleStatusSave() {
   } catch (error) {
     console.error("Failed to save status", error);
     document.getElementById("workflowMessage").textContent = error.message || "Status could not be saved.";
+  } finally {
+    setLoading("savingWorkflow", false);
+    setButtonBusy(saveButton, false);
   }
 }
 
@@ -801,6 +965,7 @@ async function deleteMasterDataItem(collection, id) {
 async function handleSubmit(event) {
   event.preventDefault();
   const formElement = event.currentTarget;
+  const submitButton = formElement.querySelector('button[type="submit"]');
   const form = new FormData(formElement);
   const payload = {
     title: form.get("title"),
@@ -819,6 +984,8 @@ async function handleSubmit(event) {
   };
 
   try {
+    setLoading("submittingRequest", true);
+    setButtonBusy(submitButton, true, "Submitting...");
     const response = await fetch("/api/requests", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -839,6 +1006,9 @@ async function handleSubmit(event) {
   } catch (error) {
     console.error("Failed to create request", error);
     alert(error.message || "Request could not be saved to the temporary database.");
+  } finally {
+    setLoading("submittingRequest", false);
+    setButtonBusy(submitButton, false);
   }
 }
 
@@ -883,7 +1053,11 @@ document.querySelectorAll(".column-filter").forEach((input) => {
   });
 });
 document.getElementById("requestForm").addEventListener("submit", handleSubmit);
-document.getElementById("adminProductSelect").addEventListener("change", (event) => loadWorkflow(event.target.value));
+document.getElementById("adminProductSelect").addEventListener("change", (event) => {
+  loadWorkflow(event.target.value).catch((error) => {
+    console.error("Failed to load workflow", error);
+  });
+});
 document.getElementById("masterDataCollection").addEventListener("change", renderMasterData);
 document.getElementById("masterDataForm").addEventListener("submit", handleMasterDataSubmit);
 
@@ -891,15 +1065,31 @@ async function initializeApp() {
   await loadSession();
   renderAccess();
 
-  await Promise.all([loadMasterData(), loadDashboard()]);
+  setLoading("masterData", true);
+  setLoading("dashboard", true);
+  setLoading("products", true);
+  render();
+
+  try {
+    await Promise.all([loadMasterData({ showLoading: false }), loadDashboard({ showLoading: false })]);
+  } finally {
+    setLoading("masterData", false);
+    setLoading("dashboard", false);
+  }
   populateRequestSelects();
   render();
-  await loadProducts();
+
+  try {
+    await loadProducts({ showLoading: false });
+  } finally {
+    setLoading("products", false);
+  }
   render();
 }
 
 initializeApp()
   .catch((error) => {
+    Object.keys(loadingState).forEach((key) => setLoading(key, false));
     console.error("App failed to load", error);
     alert(`Application failed to load: ${error.message}`);
   });
