@@ -5,6 +5,7 @@ import os
 import re
 import sqlite3
 import sys
+import time
 import traceback
 import uuid
 from datetime import datetime, timezone
@@ -18,7 +19,10 @@ APP_BACKEND = os.getenv("GOVERNANCE_BACKEND", "sqlite").strip().lower()
 DB_PATH = Path(os.getenv("GOVERNANCE_SQLITE_PATH", ROOT / "governance_tool.sqlite"))
 GOVERNANCE_CATALOG = os.getenv("GOVERNANCE_CATALOG", "").strip()
 GOVERNANCE_SCHEMA = os.getenv("GOVERNANCE_SCHEMA", "").strip()
+IDENTITY_DEBUG = os.getenv("GOVERNANCE_IDENTITY_DEBUG", "").strip().lower() in {"1", "true", "yes"}
 ADMIN_ROLE_KEYS = {"admin", "data_domain_owner", "domain_delivery_lead", "lynx_pm"}
+MASTER_DATA_CACHE_SECONDS = 300
+MASTER_DATA_CACHE = {"expires_at": 0.0, "data": None}
 
 MASTER_DATA_CONFIG = {
     "domains": {
@@ -913,12 +917,51 @@ def insert_request(db: sqlite3.Connection, payload: dict, timestamp: str | None 
 
 
 def get_requests(db: sqlite3.Connection) -> list[dict]:
-    rows = db.execute(request_select_sql() + " ORDER BY r.created_at DESC").fetchall()
+    rows = db.execute(request_overview_select_sql() + " ORDER BY r.created_at DESC").fetchall()
     return [serialize_request(row) for row in rows]
 
 
 def get_requests_for_user(db: sqlite3.Connection, email: str) -> list[dict]:
     return get_requests(db)
+
+
+def get_dashboard(db: sqlite3.Connection) -> dict:
+    totals = db.execute(
+        """
+        SELECT
+          COUNT(*) AS total,
+          SUM(CASE WHEN status_id IN ('in_review', 'in_progress') THEN 1 ELSE 0 END) AS in_review,
+          SUM(CASE WHEN status_id = 'blocked' THEN 1 ELSE 0 END) AS blocked,
+          SUM(CASE WHEN current_stage_id IN ('publish', 'operate') THEN 1 ELSE 0 END) AS live
+        FROM data_product_requests_new
+        """
+    ).fetchone()
+    stage_rows = dict_rows(
+        db.execute(
+            """
+            SELECT current_stage_id AS stageId, COUNT(*) AS count
+            FROM data_product_requests_new
+            GROUP BY current_stage_id
+            """
+        ).fetchall()
+    )
+    status_rows = dict_rows(
+        db.execute(
+            """
+            SELECT status_id AS statusId, COUNT(*) AS count
+            FROM data_product_requests_new
+            GROUP BY status_id
+            """
+        ).fetchall()
+    )
+    return {
+        "total": int(totals["total"] or 0),
+        "inReview": int(totals["in_review"] or 0),
+        "blocked": int(totals["blocked"] or 0),
+        "live": int(totals["live"] or 0),
+        "stageCounts": {row["stageId"]: int(row["count"] or 0) for row in stage_rows},
+        "statusCounts": {row["statusId"]: int(row["count"] or 0) for row in status_rows},
+    }
 
 
 def get_session(db: sqlite3.Connection, email: str) -> dict:
@@ -983,6 +1026,8 @@ def resolve_user_email(headers, fallback: str = "") -> tuple[str, str]:
 
 
 def log_identity_headers(headers) -> None:
+    if not IDENTITY_DEBUG:
+        return
     header_names = sorted(headers.keys())
     print(f"Incoming header names: {header_names}", flush=True)
     for header in [
@@ -1040,11 +1085,29 @@ def get_master_data(db: sqlite3.Connection) -> dict:
     }
 
 
+def get_cached_master_data(db: sqlite3.Connection) -> dict:
+    now_monotonic = time.monotonic()
+    if MASTER_DATA_CACHE["data"] is not None and MASTER_DATA_CACHE["expires_at"] > now_monotonic:
+        return MASTER_DATA_CACHE["data"]
+    data = get_master_data(db)
+    MASTER_DATA_CACHE["data"] = data
+    MASTER_DATA_CACHE["expires_at"] = now_monotonic + MASTER_DATA_CACHE_SECONDS
+    return data
+
+
+def clear_master_data_cache() -> None:
+    MASTER_DATA_CACHE["data"] = None
+    MASTER_DATA_CACHE["expires_at"] = 0.0
+
+
 def upsert_master_data_item(db: sqlite3.Connection, collection: str, payload: dict) -> dict:
     config = MASTER_DATA_CONFIG.get(collection)
     if not config:
         raise ValueError("Unsupported master data collection")
-    item_id = slug_id(payload.get("id") or payload.get("name") or payload.get("email") or "")
+    if collection == "users":
+        item_id = slug_id(payload.get("email") or "")
+    else:
+        item_id = slug_id(payload.get("id") or payload.get("name") or "")
     if not item_id:
         raise ValueError("id or name is required")
     columns = [config["id"]]
@@ -1162,6 +1225,48 @@ def request_select_sql() -> str:
             ),
             r.created_at
           ) AS current_stage_entered_at
+        FROM data_product_requests_new r
+        JOIN md_domains d ON d.domain_id = r.lead_domain_id
+        LEFT JOIN md_business_units bu ON bu.business_unit_id = r.business_unit_id
+        JOIN md_product_types pt ON pt.product_type_id = r.product_type_id
+        JOIN md_platforms p ON p.platform_id = r.target_platform_id
+        JOIN md_priorities pr ON pr.priority_id = r.priority_id
+        JOIN md_stages s ON s.stage_id = r.current_stage_id
+        JOIN md_statuses st ON st.status_id = r.status_id
+        LEFT JOIN md_scope_options scope ON scope.scope_id = r.scope_id
+        LEFT JOIN md_subdomains sub ON sub.subdomain_id = r.lead_subdomain_id
+        LEFT JOIN md_users ddo ON ddo.user_id = r.data_domain_owner_user_id
+        LEFT JOIN md_source_systems src ON src.source_system_id = r.source_system_id
+        LEFT JOIN md_users dle ON dle.user_id = r.delivery_lead
+        LEFT JOIN md_users ddl ON ddl.user_id = r.domain_delivery_lead_user_id
+        LEFT JOIN md_users lpm ON lpm.user_id = r.lynx_pm_user_id
+        LEFT JOIN md_build_statuses bs ON bs.build_status_id = r.build_status_id
+    """
+
+
+def request_overview_select_sql() -> str:
+    return """
+        SELECT
+          r.*,
+          d.domain_name,
+          bu.business_unit_name,
+          pt.product_type_name,
+          p.platform_name,
+          pr.priority_name,
+          s.stage_name,
+          s.stage_number,
+          st.status_name,
+          scope.scope_name,
+          sub.subdomain_name,
+          sub.domain_id AS subdomain_domain_id,
+          ddo.display_name AS data_domain_owner_name,
+          ddo.email AS data_domain_owner_email,
+          src.source_system_name,
+          dle.display_name AS delivery_lead_name,
+          ddl.display_name AS domain_delivery_lead_name,
+          lpm.display_name AS lynx_pm_name,
+          bs.build_status_name,
+          COALESCE(r.last_status_change_date, r.updated_at, r.created_at) AS current_stage_entered_at
         FROM data_product_requests_new r
         JOIN md_domains d ON d.domain_id = r.lead_domain_id
         LEFT JOIN md_business_units bu ON bu.business_unit_id = r.business_unit_id
@@ -1609,7 +1714,11 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
                 return
             if path == "/api/master-data":
                 with connect() as db:
-                    self.send_json(get_master_data(db))
+                    self.send_json(get_cached_master_data(db))
+                return
+            if path == "/api/dashboard":
+                with connect() as db:
+                    self.send_json(get_dashboard(db))
                 return
             if path == "/api/requests":
                 with connect() as db:
@@ -1655,7 +1764,8 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
                     require_admin(db, request_user_email(self.headers))
                     result = upsert_master_data_item(db, collection, payload)
                     db.commit()
-                    master_data = get_master_data(db)
+                    clear_master_data_cache()
+                    master_data = get_cached_master_data(db)
                 self.send_json({"saved": result, "masterData": master_data}, status=201)
                 return
 
@@ -1695,7 +1805,8 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
                         return
                     result = delete_master_data_item(db, parts[3], parts[4])
                     db.commit()
-                    master_data = get_master_data(db)
+                    clear_master_data_cache()
+                    master_data = get_cached_master_data(db)
                 self.send_json({"deleted": result, "masterData": master_data})
                 return
             self.send_error(404)

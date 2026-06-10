@@ -1,5 +1,6 @@
 let products = [];
 let masterData = { domains: [], stages: [] };
+let dashboard = { total: 0, inReview: 0, blocked: 0, live: 0, stageCounts: {}, statusCounts: {} };
 let currentWorkflow = null;
 let activeStageId = "";
 let activeView = "overview";
@@ -82,6 +83,15 @@ async function loadMasterData() {
   masterData = await response.json();
 }
 
+async function loadDashboard() {
+  const response = await fetch("/api/dashboard");
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || `Dashboard API returned ${response.status}`);
+  }
+  dashboard = await response.json();
+}
+
 async function loadSession() {
   const response = await fetch("/api/session");
   if (!response.ok) {
@@ -89,6 +99,10 @@ async function loadSession() {
     throw new Error(error.error || `Session API returned ${response.status}`);
   }
   currentUser = await response.json();
+}
+
+async function refreshOverviewData() {
+  await Promise.all([loadDashboard(), loadProducts()]);
 }
 
 function setView(view) {
@@ -140,24 +154,27 @@ function matchesColumnFilters(product) {
 }
 
 function renderMetrics() {
-  document.getElementById("metricTotal").textContent = products.length;
-  document.getElementById("metricReview").textContent = products.filter((p) =>
-    ["in_review", "in_progress"].includes(p.statusId)
-  ).length;
-  document.getElementById("metricBlocked").textContent = products.filter((p) => p.statusId === "blocked").length;
-  document.getElementById("metricLive").textContent = products.filter((p) =>
-    ["publish", "operate"].includes(p.stageId)
-  ).length;
+  const total = Number.isFinite(dashboard.total) ? dashboard.total : products.length;
+  document.getElementById("metricTotal").textContent = total;
+  document.getElementById("metricReview").textContent = Number.isFinite(dashboard.inReview)
+    ? dashboard.inReview
+    : products.filter((p) => ["in_review", "in_progress"].includes(p.statusId)).length;
+  document.getElementById("metricBlocked").textContent = Number.isFinite(dashboard.blocked)
+    ? dashboard.blocked
+    : products.filter((p) => p.statusId === "blocked").length;
+  document.getElementById("metricLive").textContent = Number.isFinite(dashboard.live)
+    ? dashboard.live
+    : products.filter((p) => ["publish", "operate"].includes(p.stageId)).length;
 }
 
 function renderRail() {
   const rail = document.getElementById("processRail");
   rail.innerHTML = "";
   const stages = masterData.stages || [];
-  const totalProducts = products.length || 0;
+  const totalProducts = dashboard.total || products.length || 0;
 
   stages.forEach((stage) => {
-    const count = products.filter((product) => product.stageId === stage.id).length;
+    const count = dashboard.stageCounts?.[stage.id] ?? products.filter((product) => product.stageId === stage.id).length;
     const percent = totalProducts ? Math.round((count / totalProducts) * 100) : 0;
     const button = document.createElement("button");
     button.type = "button";
@@ -603,7 +620,7 @@ async function handleWorkflowSubmit(event) {
     document.getElementById("workflowMessage").textContent = currentWorkflow.advanced
       ? `Saved. Product advanced to ${currentWorkflow.request.stage}.`
       : "Saved. Complete required fields to advance.";
-    await loadProducts();
+    await refreshOverviewData();
     render();
     renderWorkflow();
   } catch (error) {
@@ -628,7 +645,7 @@ async function handleStatusSave() {
     }
     currentWorkflow = await response.json();
     document.getElementById("workflowMessage").textContent = "Status saved.";
-    await loadProducts();
+    await refreshOverviewData();
     render();
     renderWorkflow();
   } catch (error) {
@@ -817,6 +834,7 @@ async function handleSubmit(event) {
     populateRequestSelects();
     activeStageId = "intake";
     setView("overview");
+    await loadDashboard();
     render();
   } catch (error) {
     console.error("Failed to create request", error);
@@ -873,8 +891,10 @@ async function initializeApp() {
   await loadSession();
   renderAccess();
 
-  await Promise.all([loadMasterData(), loadProducts()]);
+  await Promise.all([loadMasterData(), loadDashboard()]);
   populateRequestSelects();
+  render();
+  await loadProducts();
   render();
 }
 
