@@ -77,6 +77,36 @@ const masterCollections = [
   },
 ];
 
+async function apiJson(url, options = {}) {
+  const response = await fetch(url, options);
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(payload?.error || `${url} returned ${response.status}`);
+  }
+  return payload;
+}
+
+function jsonOptions(method, payload) {
+  return {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  };
+}
+
+function showAppError(message) {
+  const banner = document.getElementById("appError");
+  const text = document.getElementById("appErrorText");
+  if (!banner || !text) return;
+  text.textContent = message || "Something went wrong.";
+  banner.hidden = false;
+}
+
+function clearAppError() {
+  const banner = document.getElementById("appError");
+  if (banner) banner.hidden = true;
+}
+
 function setLoading(key, value) {
   if (!(key in loadingState)) return;
   if (value) {
@@ -181,12 +211,7 @@ function setButtonBusy(button, busy, busyText = "Working...") {
 async function loadProducts({ showLoading = true } = {}) {
   if (showLoading) setLoading("products", true);
   try {
-    const response = await fetch("/api/requests");
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.error || `Requests API returned ${response.status}`);
-    }
-    products = await response.json();
+    products = await apiJson("/api/requests");
     productsLoaded = true;
   } finally {
     if (showLoading) setLoading("products", false);
@@ -196,12 +221,7 @@ async function loadProducts({ showLoading = true } = {}) {
 async function loadMasterData({ showLoading = true } = {}) {
   if (showLoading) setLoading("masterData", true);
   try {
-    const response = await fetch("/api/master-data");
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.error || `Master data API returned ${response.status}`);
-    }
-    masterData = await response.json();
+    masterData = await apiJson("/api/master-data");
   } finally {
     if (showLoading) setLoading("masterData", false);
   }
@@ -210,24 +230,14 @@ async function loadMasterData({ showLoading = true } = {}) {
 async function loadDashboard({ showLoading = true } = {}) {
   if (showLoading) setLoading("dashboard", true);
   try {
-    const response = await fetch("/api/dashboard");
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.error || `Dashboard API returned ${response.status}`);
-    }
-    dashboard = await response.json();
+    dashboard = await apiJson("/api/dashboard");
   } finally {
     if (showLoading) setLoading("dashboard", false);
   }
 }
 
 async function loadSession() {
-  const response = await fetch("/api/session");
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.error || `Session API returned ${response.status}`);
-  }
-  currentUser = await response.json();
+  currentUser = await apiJson("/api/session");
 }
 
 async function refreshOverviewData() {
@@ -408,10 +418,6 @@ async function openProductWorkflow(requestId) {
   if (!currentUser.canAdmin) return;
   activeWorkflowRequestId = requestId;
   setView("admin");
-  renderAdminOptions();
-  const select = document.getElementById("adminProductSelect");
-  if (select) select.value = requestId;
-  await loadWorkflow(requestId);
   scrollAdminToTop();
 }
 
@@ -505,14 +511,18 @@ async function renderAdmin() {
     renderWorkflowLoading("Loading product list...");
     return;
   }
-  if (!select.value && products[0]) select.value = products[0].requestId;
-  if (!select.value) {
+  const desiredRequestId =
+    activeWorkflowRequestId && products.some((product) => product.requestId === activeWorkflowRequestId)
+      ? activeWorkflowRequestId
+      : select.value || products[0]?.requestId || "";
+  if (!desiredRequestId) {
     document.getElementById("adminProductCard").innerHTML = "No products available.";
     document.getElementById("workflowFields").innerHTML = "";
     document.getElementById("timelineList").innerHTML = "";
     return;
   }
-  await loadWorkflow(select.value);
+  select.value = desiredRequestId;
+  await loadWorkflow(desiredRequestId);
 }
 
 async function loadWorkflow(requestId) {
@@ -520,9 +530,7 @@ async function loadWorkflow(requestId) {
   setLoading("workflow", true);
   renderWorkflowLoading("Loading selected product workflow...");
   try {
-    const response = await fetch(`/api/requests/${requestId}/workflow`);
-    if (!response.ok) throw new Error(`Workflow API returned ${response.status}`);
-    const workflow = await response.json();
+    const workflow = await apiJson(`/api/requests/${requestId}/workflow`);
     if (activeWorkflowRequestId !== requestId) return;
     currentWorkflow = workflow;
     renderWorkflow();
@@ -562,6 +570,11 @@ function renderWorkflowError(error) {
 
 function renderWorkflow() {
   const product = currentWorkflow.request;
+  const jiraHref = safeExternalUrl(product.jiraLink);
+  const jiraLabel = escapeHtml(product.jiraEpicId || product.jiraLink || "Not set");
+  const jiraMarkup = jiraHref
+    ? `<a href="${escapeHtml(jiraHref)}" target="_blank" rel="noreferrer noopener">${jiraLabel}</a>`
+    : jiraLabel;
   document.getElementById("adminProductCard").innerHTML = `
     <strong>${escapeHtml(product.title)}</strong>
     <span>${escapeHtml(product.id)} | ${escapeHtml(product.domain)} | ${escapeHtml(product.businessUnit || "No BU")}</span>
@@ -586,7 +599,7 @@ function renderWorkflow() {
     <span>Delivery date: ${escapeHtml(product.deliveryDate || "Not set")}</span>
     <span>Delivery lead: ${escapeHtml(product.deliveryLead || "Not set")}</span>
     <span>Effort: ${escapeHtml(product.effort ?? "Not set")}</span>
-    <span>Jira: ${product.jiraLink ? `<a href="${escapeHtml(product.jiraLink)}" target="_blank" rel="noreferrer">${escapeHtml(product.jiraEpicId || product.jiraLink)}</a>` : escapeHtml(product.jiraEpicId || "Not set")}</span>
+    <span>Jira: ${jiraMarkup}</span>
     <span>Last status change: ${escapeHtml(product.lastStatusChangeDate || "Not set")} ${product.lastStatusChangedBy ? `by ${escapeHtml(product.lastStatusChangedBy)}` : ""}</span>
   `;
 
@@ -787,6 +800,7 @@ function renderTimeline() {
 async function handleWorkflowSubmit(event) {
   event.preventDefault();
   if (!currentWorkflow) return;
+  clearAppError();
 
   const form = event.currentTarget;
   const submitButton = form.querySelector('button[type="submit"]');
@@ -807,17 +821,10 @@ async function handleWorkflowSubmit(event) {
     setLoading("savingWorkflow", true);
     setButtonBusy(submitButton, true, "Saving stage...");
     document.getElementById("workflowMessage").textContent = "Saving stage and refreshing dashboard...";
-    const response = await fetch(`/api/requests/${currentWorkflow.request.requestId}/answers`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-User-Email": currentUser.email },
-      body: JSON.stringify({ stageId, answers, statusId: status, updatedBy: "admin" }),
-    });
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.error || `Save answers failed with ${response.status}`);
-    }
-
-    currentWorkflow = await response.json();
+    currentWorkflow = await apiJson(
+      `/api/requests/${currentWorkflow.request.requestId}/answers`,
+      jsonOptions("POST", { stageId, answers, statusId: status })
+    );
     document.getElementById("workflowMessage").textContent = currentWorkflow.advanced
       ? `Saved. Product advanced to ${currentWorkflow.request.stage}.`
       : "Saved. Complete required fields to advance.";
@@ -835,6 +842,7 @@ async function handleWorkflowSubmit(event) {
 
 async function handleStatusSave() {
   if (!currentWorkflow) return;
+  clearAppError();
   const statusId = document.getElementById("workflowStatusSelect")?.value || "";
   const statusChangeReason = document.getElementById("workflowStatusReason")?.value || "";
   const saveButton = document.getElementById("saveWorkflowStatus");
@@ -842,16 +850,10 @@ async function handleStatusSave() {
     setLoading("savingWorkflow", true);
     setButtonBusy(saveButton, true, "Saving status...");
     document.getElementById("workflowMessage").textContent = "Saving status and refreshing dashboard...";
-    const response = await fetch(`/api/requests/${currentWorkflow.request.requestId}/status`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-User-Email": currentUser.email },
-      body: JSON.stringify({ statusId, statusChangeReason, updatedBy: currentUser.email || "admin" }),
-    });
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.error || `Save status failed with ${response.status}`);
-    }
-    currentWorkflow = await response.json();
+    currentWorkflow = await apiJson(
+      `/api/requests/${currentWorkflow.request.requestId}/status`,
+      jsonOptions("POST", { statusId, statusChangeReason })
+    );
     document.getElementById("workflowMessage").textContent = "Status saved.";
     await refreshOverviewData();
     render();
@@ -967,6 +969,7 @@ function renderMasterDataList() {
 
 async function handleMasterDataSubmit(event) {
   event.preventDefault();
+  clearAppError();
   const formEl = event.currentTarget;
   const collection = selectedMasterCollection();
   const form = new FormData(formEl);
@@ -975,13 +978,7 @@ async function handleMasterDataSubmit(event) {
     payload[field.name] = form.get(field.name) || "";
   });
   try {
-    const response = await fetch(`/api/master-data/${collection.key}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-User-Email": currentUser.email },
-      body: JSON.stringify(payload),
-    });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || `Save failed with ${response.status}`);
+    const result = await apiJson(`/api/master-data/${collection.key}`, jsonOptions("POST", payload));
     masterData = result.masterData;
     formEl.reset();
     renderMasterData();
@@ -993,13 +990,9 @@ async function handleMasterDataSubmit(event) {
 }
 
 async function deleteMasterDataItem(collection, id) {
+  clearAppError();
   try {
-    const response = await fetch(`/api/master-data/${collection}/${encodeURIComponent(id)}`, {
-      method: "DELETE",
-      headers: { "X-User-Email": currentUser.email },
-    });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || `Delete failed with ${response.status}`);
+    const result = await apiJson(`/api/master-data/${collection}/${encodeURIComponent(id)}`, { method: "DELETE" });
     masterData = result.masterData;
     renderMasterData();
     populateRequestSelects();
@@ -1011,6 +1004,7 @@ async function deleteMasterDataItem(collection, id) {
 
 async function handleSubmit(event) {
   event.preventDefault();
+  clearAppError();
   const formElement = event.currentTarget;
   const submitButton = formElement.querySelector('button[type="submit"]');
   const form = new FormData(formElement);
@@ -1033,16 +1027,7 @@ async function handleSubmit(event) {
   try {
     setLoading("submittingRequest", true);
     setButtonBusy(submitButton, true, "Submitting...");
-    const response = await fetch("/api/requests", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.error || `API returned ${response.status}`);
-    }
-    const created = await response.json();
+    const created = await apiJson("/api/requests", jsonOptions("POST", payload));
     products = [created, ...products];
     formElement.reset();
     populateRequestSelects();
@@ -1052,7 +1037,7 @@ async function handleSubmit(event) {
     render();
   } catch (error) {
     console.error("Failed to create request", error);
-    alert(error.message || "Request could not be saved to the temporary database.");
+    showAppError(error.message || "Request could not be saved.");
   } finally {
     setLoading("submittingRequest", false);
     setButtonBusy(submitButton, false);
@@ -1075,6 +1060,17 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function safeExternalUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    const url = new URL(raw);
+    return ["http:", "https:"].includes(url.protocol) ? url.href : "";
+  } catch {
+    return "";
+  }
 }
 
 document.querySelectorAll("[data-view]").forEach((button) => {
@@ -1107,6 +1103,7 @@ document.getElementById("adminProductSelect").addEventListener("change", (event)
 });
 document.getElementById("masterDataCollection").addEventListener("change", renderMasterData);
 document.getElementById("masterDataForm").addEventListener("submit", handleMasterDataSubmit);
+document.getElementById("appErrorDismiss").addEventListener("click", clearAppError);
 
 async function initializeApp() {
   await loadSession();
@@ -1138,5 +1135,5 @@ initializeApp()
   .catch((error) => {
     Object.keys(loadingState).forEach((key) => setLoading(key, false));
     console.error("App failed to load", error);
-    alert(`Application failed to load: ${error.message}`);
+    showAppError(`Application failed to load: ${error.message}`);
   });

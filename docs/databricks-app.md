@@ -18,7 +18,7 @@ The committed `app.yaml` uses:
 ```yaml
 GOVERNANCE_BACKEND: databricks_sql
 GOVERNANCE_CATALOG: venus_forge_dev
-GOVERNANCE_SCHEMA: app_product_details
+GOVERNANCE_SCHEMA: app_control_tables
 DATABRICKS_WAREHOUSE_ID:
   valueFrom: sql-warehouse
 ```
@@ -35,10 +35,12 @@ GOVERNANCE_BACKEND=sqlite DATABRICKS_APP_PORT=8502 python3 app.py
 
 Before deploying the SQL-backed app:
 
-1. Run `sql/databricks_schema.sql` after replacing `${catalog}.${schema}` with `venus_forge_dev.app_product_details`.
+1. Run `sql/databricks_schema.sql` after replacing `${catalog}.${schema}` with `venus_forge_dev.app_control_tables`.
 2. Run `sql/seed_master_data.sql` with the same replacement.
 3. Add a Databricks App SQL warehouse resource using the default resource key `sql-warehouse`.
-4. Grant the app service principal `USE CATALOG`, `USE SCHEMA`, and table read/write permissions on `venus_forge_dev.app_product_details`.
+4. Grant the app service principal `USE CATALOG`, `USE SCHEMA`, and table read/write permissions on `venus_forge_dev.app_control_tables`.
+
+The app trusts Databricks-provided identity headers for user/session resolution. Do not rely on browser-sent identity headers for admin authorization.
 
 Use a Databricks App resource for the SQL warehouse instead of hardcoding sensitive or environment-specific values.
 
@@ -65,4 +67,4 @@ databricks apps deploy <app-name> \
 - Access to the GitHub repo from Databricks, or a workspace folder deploy.
 - A SQL warehouse for the future durable backend.
 - A Unity Catalog catalog and schema name for the governance tables.
-- App service principal permissions on the source folder and, later, on the SQL warehouse and Unity Catalog tables.
+- App service principal permissions on the source folder, SQL warehouse, and Unity Catalog tables.

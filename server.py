@@ -20,9 +20,23 @@ DB_PATH = Path(os.getenv("GOVERNANCE_SQLITE_PATH", ROOT / "governance_tool.sqlit
 GOVERNANCE_CATALOG = os.getenv("GOVERNANCE_CATALOG", "").strip()
 GOVERNANCE_SCHEMA = os.getenv("GOVERNANCE_SCHEMA", "").strip()
 IDENTITY_DEBUG = os.getenv("GOVERNANCE_IDENTITY_DEBUG", "").strip().lower() in {"1", "true", "yes"}
+ALLOW_IDENTITY_FALLBACK = os.getenv("GOVERNANCE_ALLOW_IDENTITY_FALLBACK", "").strip().lower() in {"1", "true", "yes"}
+SEED_DEMO_DATA = os.getenv("GOVERNANCE_SEED_DEMO_DATA", "true").strip().lower() in {"1", "true", "yes"}
 ADMIN_ROLE_KEYS = {"admin", "data_domain_owner", "domain_delivery_lead", "lynx_pm"}
 MASTER_DATA_CACHE_SECONDS = 300
 MASTER_DATA_CACHE = {"expires_at": 0.0, "data": None}
+MAX_REQUEST_BODY_BYTES = 1_000_000
+MAX_TEXT_LENGTH = 500
+MAX_TEXTAREA_LENGTH = 4000
+MAX_URL_LENGTH = 2048
+TRUSTED_IDENTITY_HEADERS = [
+    "X-Forwarded-Email",
+    "X-Forwarded-Preferred-Username",
+    "X-Forwarded-User",
+    "X-Forwarded-Login",
+    "X-Databricks-User-Email",
+    "X-Databricks-User",
+]
 
 MASTER_DATA_CONFIG = {
     "domains": {
@@ -305,9 +319,10 @@ def init_db() -> None:
         create_workflow_tables(db)
         seed_master_data(db)
         seed_stage_requirements(db)
-        seed_requests(db)
-        backfill_demo_stage_answers(db)
-        seed_missing_timelines(db)
+        if SEED_DEMO_DATA:
+            seed_requests(db)
+            backfill_demo_stage_answers(db)
+            seed_missing_timelines(db)
         db.commit()
 
 
@@ -829,6 +844,12 @@ def demo_answer(requirement: sqlite3.Row) -> str:
         return "true"
     if requirement["input_type"] == "date":
         return now()[:10]
+    if requirement["requirement_key"] == "effort":
+        return "10"
+    if requirement["requirement_key"] == "jira_link":
+        return "https://jira.example.com/browse/DEMO"
+    if requirement["master_data_type"] == "domains":
+        return "commercial"
     if requirement["master_data_type"] == "subdomains":
         return "sales_commercial_transactions"
     if requirement["master_data_type"] == "dataDomainOwners":
@@ -845,8 +866,15 @@ def demo_answer(requirement: sqlite3.Row) -> str:
 
 
 def next_request_number(db: sqlite3.Connection) -> str:
-    count = db.execute("SELECT COUNT(*) AS count FROM data_product_requests_new").fetchone()["count"]
-    return f"REQ-{count + 1:03d}"
+    rows = db.execute(
+        "SELECT request_number FROM data_product_requests_new WHERE request_number LIKE 'REQ-%'"
+    ).fetchall()
+    max_number = 0
+    for row in rows:
+        match = re.match(r"^REQ-(\d+)$", row["request_number"] or "")
+        if match:
+            max_number = max(max_number, int(match.group(1)))
+    return f"REQ-{max_number + 1:03d}"
 
 
 def validate_payload(payload: dict) -> str | None:
@@ -870,9 +898,22 @@ def insert_request(db: sqlite3.Connection, payload: dict, timestamp: str | None 
     timestamp = timestamp or now()
     request_id = str(uuid.uuid4())
     request_number = payload.get("request_number") or next_request_number(db)
-    stage_id = payload.get("stage", "intake")
-    status_id = payload.get("status", "in_review")
+    stage_id = ensure_reference(db, "md_stages", "stage_id", payload.get("stage", "intake"), "stage")
+    status_id = ensure_reference(db, "md_statuses", "status_id", payload.get("status", "in_review"), "status")
     domain_id = resolve_domain_id(db, payload.get("domain"))
+    title = clean_text(payload.get("title"), "title", required=True)
+    requester_email = clean_email(payload.get("requesterEmail"), "requester email")
+    product_type_id = ensure_reference(db, "md_product_types", "product_type_id", payload.get("productType", "structured"), "product type")
+    platform_id = ensure_reference(db, "md_platforms", "platform_id", payload.get("platform", "databricks"), "target platform")
+    priority_id = ensure_reference(db, "md_priorities", "priority_id", payload.get("priority", "p2"), "priority")
+    business_unit_id = ensure_reference(db, "md_business_units", "business_unit_id", payload.get("businessUnit", "cp"), "business unit", required=False)
+    scope_id = ensure_reference(db, "md_scope_options", "scope_id", payload.get("scope", "global"), "scope", required=False)
+    delivery_lead = (
+        ensure_user_role_reference(db, payload.get("deliveryLead"), "delivery lead", "domain_delivery_lead", required=False)
+        if payload.get("deliveryLead")
+        else ""
+    )
+    effort = clean_non_negative_int(payload.get("effort"), "effort")
     db.execute(
         """
         INSERT INTO data_product_requests_new (
@@ -887,32 +928,32 @@ def insert_request(db: sqlite3.Connection, payload: dict, timestamp: str | None 
         (
             request_id,
             request_number,
-            payload.get("title", "").strip(),
-            payload.get("description", "").strip(),
-            payload.get("productType", "structured"),
-            payload.get("platform", "databricks"),
-            payload.get("priority", "p2"),
+            title,
+            clean_text(payload.get("description"), "description", max_length=MAX_TEXTAREA_LENGTH),
+            product_type_id,
+            platform_id,
+            priority_id,
             domain_id,
-            payload.get("businessUnit", "cp"),
-            payload.get("scope", "global"),
-            payload.get("requester", "").strip(),
-            payload.get("requesterEmail", "").strip().lower(),
-            payload.get("initiative", "").strip(),
-            payload.get("expectedDate", "").strip(),
-            payload.get("deliveryDate", "").strip(),
-            payload.get("deliveryLead", "").strip(),
-            int(payload.get("effort") or 0) if str(payload.get("effort") or "").strip() else None,
-            payload.get("jiraEpicId", "").strip(),
-            payload.get("jiraLink", "").strip(),
-            payload.get("additionalComments", "").strip(),
+            business_unit_id,
+            scope_id,
+            clean_text(payload.get("requester"), "requester", required=True),
+            requester_email,
+            clean_text(payload.get("initiative"), "initiative"),
+            clean_date(payload.get("expectedDate"), "expected date", required=True),
+            clean_date(payload.get("deliveryDate"), "delivery date"),
+            delivery_lead,
+            effort,
+            clean_text(payload.get("jiraEpicId"), "Jira epic ID"),
+            clean_http_url(payload.get("jiraLink"), "Jira link"),
+            clean_text(payload.get("additionalComments"), "additional comments", max_length=MAX_TEXTAREA_LENGTH),
             stage_id,
             status_id,
-            payload.get("note", "New request submitted for triage"),
+            clean_text(payload.get("note", "New request submitted for triage"), "note", max_length=MAX_TEXTAREA_LENGTH),
             timestamp,
             timestamp,
         ),
     )
-    add_timeline(db, request_id, "created", "Request created", "New request submitted.", stage_id=stage_id, status_id=status_id, created_by=payload.get("requesterEmail", ""), created_at=timestamp)
+    add_timeline(db, request_id, "created", "Request created", "New request submitted.", stage_id=stage_id, status_id=status_id, created_by=requester_email, created_at=timestamp)
     return get_request_by_id(db, request_id)
 
 
@@ -987,41 +1028,24 @@ def get_session(db: sqlite3.Connection, email: str) -> dict:
     }
 
 
-def identity_only_session(email: str, source: str, error: Exception) -> dict:
-    return {
-        "email": email,
-        "role": "requester",
-        "canAdmin": False,
-        "canDeleteMasterData": False,
-        "name": email.split("@")[0] if email else "Unknown user",
-        "identitySource": source,
-        "roleLookupError": str(error),
-    }
-
-
 def log_exception(context: str, exc: Exception) -> None:
     print(f"[ERROR] {context}: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
     traceback.print_exc(file=sys.stderr)
 
 
 def resolve_user_email(headers, fallback: str = "") -> tuple[str, str]:
-    candidates = [
-        ("X-Forwarded-Email", headers.get("X-Forwarded-Email")),
-        ("X-Forwarded-Preferred-Username", headers.get("X-Forwarded-Preferred-Username")),
-        ("X-Forwarded-User", headers.get("X-Forwarded-User")),
-        ("X-Forwarded-Login", headers.get("X-Forwarded-Login")),
-        ("X-User-Email", headers.get("X-User-Email")),
-        ("X-Databricks-User-Email", headers.get("X-Databricks-User-Email")),
-        ("X-Databricks-User", headers.get("X-Databricks-User")),
-        ("fallback", fallback),
-    ]
+    candidates = [(header, headers.get(header)) for header in TRUSTED_IDENTITY_HEADERS]
+    if ALLOW_IDENTITY_FALLBACK:
+        candidates.append(("fallback", fallback))
     for source, value in candidates:
         clean_value = str(value or "").strip().lower()
         if clean_value and re.match(r"^[^@\s]+@syngenta\.com$", clean_value):
-            print(f"Resolved user identity from {source}: {clean_value}", flush=True)
+            if IDENTITY_DEBUG:
+                print(f"Resolved user identity from {source}: {clean_value}", flush=True)
             return clean_value, source
         if clean_value:
-            print(f"Ignoring non-email identity from {source}: {clean_value}", flush=True)
+            if IDENTITY_DEBUG:
+                print(f"Ignoring non-email identity from {source}: {clean_value}", flush=True)
     raise PermissionError("No valid syngenta.com user email was provided by Databricks.")
 
 
@@ -1030,13 +1054,7 @@ def log_identity_headers(headers) -> None:
         return
     header_names = sorted(headers.keys())
     print(f"Incoming header names: {header_names}", flush=True)
-    for header in [
-        "X-Forwarded-Email",
-        "X-Forwarded-Preferred-Username",
-        "X-Forwarded-User",
-        "X-Databricks-User-Email",
-        "X-Databricks-User",
-    ]:
+    for header in TRUSTED_IDENTITY_HEADERS:
         value = headers.get(header)
         if value:
             print(f"Identity header {header}: {value}", flush=True)
@@ -1120,8 +1138,13 @@ def upsert_master_data_item(db: sqlite3.Connection, collection: str, payload: di
                 raise ValueError("user email must use syngenta.com")
         elif payload_key == "roleKey":
             value = slug_id(value or "requester")
+            allowed_roles = {"requester", "admin", "data_domain_owner", "domain_delivery_lead", "lynx_pm"}
+            if value not in allowed_roles:
+                raise ValueError("roleKey is not valid")
         elif payload_key == "type":
             value = value or "Region"
+            if value not in {"Global", "Region"}:
+                raise ValueError("type is not valid")
         elif payload_key == "parentId":
             value = value or None
         elif payload_key == "domainId":
@@ -1184,6 +1207,143 @@ def delete_master_data_item(db: sqlite3.Connection, collection: str, item_id: st
 
 def slug_id(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", value.strip().lower()).strip("_")
+
+
+def clean_text(value: object, label: str, *, required: bool = False, max_length: int = MAX_TEXT_LENGTH) -> str:
+    text = str(value or "").strip()
+    if required and not text:
+        raise ValueError(f"{label} is required")
+    if len(text) > max_length:
+        raise ValueError(f"{label} must be {max_length} characters or fewer")
+    return text
+
+
+def clean_email(value: object, label: str = "email", *, required: bool = True) -> str:
+    email = str(value or "").strip().lower()
+    if required and not email:
+        raise ValueError(f"{label} is required")
+    if email and not re.match(r"^[^@\s]+@syngenta\.com$", email):
+        raise ValueError(f"{label} must use syngenta.com")
+    return email
+
+
+def clean_date(value: object, label: str, *, required: bool = False) -> str:
+    text = str(value or "").strip()
+    if required and not text:
+        raise ValueError(f"{label} is required")
+    if not text:
+        return ""
+    try:
+        datetime.strptime(text, "%Y-%m-%d")
+    except ValueError as exc:
+        raise ValueError(f"{label} must use YYYY-MM-DD format") from exc
+    return text
+
+
+def clean_non_negative_int(value: object, label: str, *, required: bool = False) -> int | None:
+    text = str(value or "").strip()
+    if required and not text:
+        raise ValueError(f"{label} is required")
+    if not text:
+        return None
+    if not re.match(r"^\d+$", text):
+        raise ValueError(f"{label} must be a whole number")
+    return int(text)
+
+
+def clean_http_url(value: object, label: str, *, required: bool = False) -> str:
+    text = str(value or "").strip()
+    if required and not text:
+        raise ValueError(f"{label} is required")
+    if not text:
+        return ""
+    if len(text) > MAX_URL_LENGTH:
+        raise ValueError(f"{label} must be {MAX_URL_LENGTH} characters or fewer")
+    parsed = urlparse(text)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError(f"{label} must be a valid http(s) URL")
+    return text
+
+
+def ensure_reference(
+    db: sqlite3.Connection,
+    table: str,
+    id_column: str,
+    value: object,
+    label: str,
+    *,
+    required: bool = True,
+    extra_where: str = "",
+    extra_params: tuple = (),
+) -> str:
+    clean_value = slug_id(str(value or ""))
+    if required and not clean_value:
+        raise ValueError(f"{label} is required")
+    if not clean_value:
+        return ""
+    query = f"SELECT 1 FROM {table} WHERE {id_column} = ? {extra_where}"
+    exists = db.execute(query, (clean_value, *extra_params)).fetchone()
+    if not exists:
+        raise ValueError(f"{label} is not valid")
+    return clean_value
+
+
+def ensure_user_role_reference(
+    db: sqlite3.Connection,
+    value: object,
+    label: str,
+    role_key: str,
+    *,
+    required: bool = True,
+) -> str:
+    return ensure_reference(
+        db,
+        "md_users",
+        "user_id",
+        value,
+        label,
+        required=required,
+        extra_where="AND role_key = ?",
+        extra_params=(role_key,),
+    )
+
+
+def validate_requirement_answer(db: sqlite3.Connection, requirement: dict, value: object) -> str:
+    key = requirement["requirement_key"]
+    input_type = requirement["input_type"]
+    master_type = requirement["master_data_type"]
+
+    if input_type == "checkbox":
+        return "true" if value is True or str(value).strip().lower() == "true" else "false"
+    if input_type == "number":
+        number = clean_non_negative_int(value, requirement["label"])
+        return "" if number is None else str(number)
+    if input_type == "date":
+        return clean_date(value, requirement["label"])
+    if key == "jira_link":
+        return clean_http_url(value, requirement["label"])
+
+    text_value = str(value or "").strip()
+    if not text_value:
+        return ""
+
+    if master_type == "domains":
+        return ensure_reference(db, "md_domains", "domain_id", text_value, requirement["label"])
+    if master_type == "subdomains":
+        return ensure_reference(db, "md_subdomains", "subdomain_id", text_value, requirement["label"])
+    if master_type == "sourceSystems":
+        return ensure_reference(db, "md_source_systems", "source_system_id", text_value, requirement["label"])
+    if master_type == "buildStatuses":
+        return ensure_reference(db, "md_build_statuses", "build_status_id", text_value, requirement["label"])
+    if master_type == "dataDomainOwners":
+        return ensure_user_role_reference(db, text_value, requirement["label"], "data_domain_owner")
+    if master_type == "domainDeliveryLeads":
+        return ensure_user_role_reference(db, text_value, requirement["label"], "domain_delivery_lead")
+    if master_type == "lynxPms":
+        return ensure_user_role_reference(db, text_value, requirement["label"], "lynx_pm")
+    if input_type == "textarea":
+        return clean_text(text_value, requirement["label"], max_length=MAX_TEXTAREA_LENGTH)
+    return clean_text(text_value, requirement["label"])
 
 
 def request_select_sql() -> str:
@@ -1378,6 +1538,7 @@ def is_answer_complete(item: dict) -> bool:
 def save_workflow_answers(db: sqlite3.Connection, request_id: str, payload: dict) -> dict:
     timestamp = now()
     stage_id = payload.get("stageId")
+    actor = clean_email(payload.get("updatedBy"), "updated by", required=False) or "system"
     if not stage_id:
         raise ValueError("stageId is required")
 
@@ -1394,7 +1555,7 @@ def save_workflow_answers(db: sqlite3.Connection, request_id: str, payload: dict
         requirement = requirement_by_id.get(requirement_id)
         if not requirement:
             continue
-        clean_value = "true" if requirement["input_type"] == "checkbox" and answer_value else str(answer_value).strip()
+        clean_value = validate_requirement_answer(db, requirement, answer_value)
         upsert_stage_answer(db, request_id, requirement_id, clean_value, timestamp)
         update_structured_field(db, request_id, requirement["requirement_key"], clean_value)
 
@@ -1402,10 +1563,11 @@ def save_workflow_answers(db: sqlite3.Connection, request_id: str, payload: dict
 
     status_id = payload.get("statusId")
     if status_id:
+        status_id = ensure_reference(db, "md_statuses", "status_id", status_id, "status")
         db.execute("UPDATE data_product_requests_new SET status_id = ? WHERE request_id = ?", (status_id, request_id))
-        add_timeline(db, request_id, "status_changed", "Status updated", f"Status changed to {status_id}.", stage_id=stage_id, status_id=status_id, created_by=payload.get("updatedBy", "admin"), created_at=timestamp)
+        add_timeline(db, request_id, "status_changed", "Status updated", f"Status changed to {status_id}.", stage_id=stage_id, status_id=status_id, created_by=actor, created_at=timestamp)
 
-    add_timeline(db, request_id, "answers_saved", f"{stage['name']} saved", "Stage information was saved.", stage_id=stage_id, status_id=status_id, created_by=payload.get("updatedBy", "admin"), created_at=timestamp)
+    add_timeline(db, request_id, "answers_saved", f"{stage['name']} saved", "Stage information was saved.", stage_id=stage_id, status_id=status_id, created_by=actor, created_at=timestamp)
     advanced = advance_if_complete(db, request_id, stage_id, timestamp)
     db.execute("UPDATE data_product_requests_new SET updated_at = ? WHERE request_id = ?", (timestamp, request_id))
     result = get_workflow(db, request_id)
@@ -1457,12 +1619,10 @@ def save_request_status(db: sqlite3.Connection, request_id: str, payload: dict) 
     timestamp = now()
     status_id = payload.get("statusId")
     reason = str(payload.get("statusChangeReason") or "").strip()
-    changed_by = payload.get("updatedBy", "admin")
+    changed_by = clean_email(payload.get("updatedBy"), "updated by", required=False) or "system"
     if not status_id:
         raise ValueError("statusId is required")
-    exists = db.execute("SELECT 1 FROM md_statuses WHERE status_id = ?", (status_id,)).fetchone()
-    if not exists:
-        raise ValueError("statusId is not valid")
+    status_id = ensure_reference(db, "md_statuses", "status_id", status_id, "status")
     current = db.execute("SELECT current_stage_id FROM data_product_requests_new WHERE request_id = ?", (request_id,)).fetchone()
     if not current:
         raise ValueError("request not found")
@@ -1510,8 +1670,40 @@ def update_structured_field(db: sqlite3.Connection, request_id: str, key: str, v
         "additional_comments": "additional_comments",
     }
     column = field_map.get(key)
-    if column:
-        db.execute(f"UPDATE data_product_requests_new SET {column} = ? WHERE request_id = ?", (value, request_id))
+    if not column:
+        return
+
+    stored_value: str | int | None = value
+    if key == "lead_domain_id":
+        stored_value = resolve_domain_id(db, value)
+    elif key == "lead_subdomain_id":
+        stored_value = ensure_reference(db, "md_subdomains", "subdomain_id", value, "lead subdomain", required=False) or None
+    elif key == "delivery_date":
+        stored_value = clean_date(value, "delivery date") or None
+    elif key == "delivery_lead":
+        stored_value = ensure_user_role_reference(db, value, "delivery lead", "domain_delivery_lead", required=False) or None
+    elif key == "effort":
+        stored_value = clean_non_negative_int(value, "effort")
+    elif key == "jira_epic_id":
+        stored_value = clean_text(value, "Jira epic ID") or None
+    elif key == "jira_link":
+        stored_value = clean_http_url(value, "Jira link") or None
+    elif key == "data_domain_owner_user_id":
+        stored_value = ensure_user_role_reference(db, value, "Data Domain Owner", "data_domain_owner", required=False) or None
+    elif key == "source_system_id":
+        stored_value = ensure_reference(db, "md_source_systems", "source_system_id", value, "source system", required=False) or None
+    elif key == "domain_delivery_lead_user_id":
+        stored_value = ensure_user_role_reference(db, value, "Domain Delivery Lead", "domain_delivery_lead", required=False) or None
+    elif key == "lynx_pm_user_id":
+        stored_value = ensure_user_role_reference(db, value, "Lynx PM", "lynx_pm", required=False) or None
+    elif key == "build_status_id":
+        stored_value = ensure_reference(db, "md_build_statuses", "build_status_id", value, "build status", required=False) or None
+    elif key == "expected_date":
+        stored_value = clean_date(value, "expected date") or None
+    elif key == "additional_comments":
+        stored_value = clean_text(value, "additional comments", max_length=MAX_TEXTAREA_LENGTH) or None
+
+    db.execute(f"UPDATE data_product_requests_new SET {column} = ? WHERE request_id = ?", (stored_value, request_id))
 
 
 def reconcile_domain_subdomain(db: sqlite3.Connection, request_id: str) -> None:
@@ -1689,8 +1881,10 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
 
     def end_headers(self) -> None:
         path = urlparse(self.path).path
-        if path in {"/", "/index.html", "/app.js", "/styles.css"}:
+        if path in {"/", "/index.html", "/app.js", "/styles.css"} or path.startswith("/api/"):
             self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
         super().end_headers()
 
     def do_GET(self) -> None:
@@ -1709,14 +1903,10 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
             if path == "/api/session":
                 log_identity_headers(self.headers)
                 email, identity_source = resolve_user_email(self.headers, query.get("email", [""])[0])
-                try:
-                    with connect() as db:
-                        session = get_session(db, email)
-                        session["identitySource"] = identity_source
-                        self.send_json(session)
-                except Exception as exc:
-                    log_exception("/api/session role lookup failed", exc)
-                    self.send_json(identity_only_session(email, identity_source, exc), status=206)
+                with connect() as db:
+                    session = get_session(db, email)
+                    session["identitySource"] = identity_source
+                    self.send_json(session)
                 return
             if path == "/api/master-data":
                 with connect() as db:
@@ -1737,19 +1927,34 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
                     self.send_json(get_workflow(db, request_id))
                 return
             super().do_GET()
+        except PermissionError as exc:
+            self.send_json({"error": str(exc)}, status=403)
+        except ValueError as exc:
+            self.send_json({"error": str(exc)}, status=400)
         except Exception as exc:
             log_exception(f"GET {path}", exc)
-            self.send_json({"error": str(exc)}, status=500)
+            self.send_json({"error": "Internal server error"}, status=500)
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path
-        length = int(self.headers.get("Content-Length", "0"))
-        payload = json.loads(self.rfile.read(length).decode("utf-8") or "{}")
         try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if length > MAX_REQUEST_BODY_BYTES:
+                self.send_json({"error": "Request body is too large"}, status=413)
+                return
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8") or "{}")
+            except json.JSONDecodeError as exc:
+                raise ValueError("Request body must be valid JSON") from exc
+            if not isinstance(payload, dict):
+                raise ValueError("Request body must be a JSON object")
+
             if path.startswith("/api/requests/") and path.endswith("/answers"):
                 request_id = path.split("/")[3]
+                actor_email = request_user_email(self.headers)
+                payload["updatedBy"] = actor_email
                 with connect() as db:
-                    require_admin(db, request_user_email(self.headers))
+                    require_admin(db, actor_email)
                     result = save_workflow_answers(db, request_id, payload)
                     db.commit()
                 self.send_json(result)
@@ -1757,8 +1962,10 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
 
             if path.startswith("/api/requests/") and path.endswith("/status"):
                 request_id = path.split("/")[3]
+                actor_email = request_user_email(self.headers)
+                payload["updatedBy"] = actor_email
                 with connect() as db:
-                    require_admin(db, request_user_email(self.headers))
+                    require_admin(db, actor_email)
                     result = save_request_status(db, request_id, payload)
                     db.commit()
                 self.send_json(result)
@@ -1766,8 +1973,9 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
 
             if path.startswith("/api/master-data/"):
                 collection = path.split("/")[3]
+                actor_email = request_user_email(self.headers)
                 with connect() as db:
-                    require_admin(db, request_user_email(self.headers))
+                    require_admin(db, actor_email)
                     result = upsert_master_data_item(db, collection, payload)
                     db.commit()
                     clear_master_data_cache()
@@ -1776,7 +1984,7 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
                 return
 
             if path != "/api/requests":
-                self.send_error(404)
+                self.send_json({"error": "Not found"}, status=404)
                 return
 
             error = validate_payload(payload)
@@ -1789,12 +1997,12 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
                 db.commit()
             self.send_json(created, status=201)
         except PermissionError as exc:
-            self.send_json({"error": str(exc)}, status=409)
+            self.send_json({"error": str(exc)}, status=403)
         except ValueError as exc:
             self.send_json({"error": str(exc)}, status=400)
         except Exception as exc:
             log_exception(f"POST {path}", exc)
-            self.send_json({"error": str(exc)}, status=500)
+            self.send_json({"error": "Internal server error"}, status=500)
 
     def do_DELETE(self) -> None:
         path = urlparse(self.path).path
@@ -1802,7 +2010,7 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
             if path.startswith("/api/master-data/"):
                 parts = path.split("/")
                 if len(parts) != 5:
-                    self.send_error(404)
+                    self.send_json({"error": "Not found"}, status=404)
                     return
                 with connect() as db:
                     session = get_session(db, request_user_email(self.headers))
@@ -1815,10 +2023,14 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
                     master_data = get_cached_master_data(db)
                 self.send_json({"deleted": result, "masterData": master_data})
                 return
-            self.send_error(404)
+            self.send_json({"error": "Not found"}, status=404)
+        except PermissionError as exc:
+            self.send_json({"error": str(exc)}, status=403)
+        except ValueError as exc:
+            self.send_json({"error": str(exc)}, status=400)
         except Exception as exc:
             log_exception(f"DELETE {path}", exc)
-            self.send_json({"error": str(exc)}, status=500)
+            self.send_json({"error": "Internal server error"}, status=500)
 
     def send_json(self, payload: object, status: int = 200) -> None:
         body = json.dumps(payload).encode("utf-8")

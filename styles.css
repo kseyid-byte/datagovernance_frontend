@@ -76,6 +76,35 @@ body {
   }
 }
 
+.app-error {
+  position: fixed;
+  z-index: 1001;
+  top: 62px;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(720px, calc(100vw - 32px));
+  padding: 12px 14px;
+  border: 1px solid rgba(185, 28, 28, 0.24);
+  border-radius: 8px;
+  background: #fef2f2;
+  color: var(--danger);
+  font-size: 13px;
+  font-weight: 800;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.16);
+  transform: translateX(-50%);
+}
+
+.app-error button {
+  border: 0;
+  border-radius: 7px;
+  padding: 7px 9px;
+  background: white;
+  color: var(--danger);
+  font-weight: 900;
+}
+
 button,
 input,
 select,

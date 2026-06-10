@@ -7,34 +7,25 @@ The current scope is intentionally focused:
 - Overview dashboard
 - Governance process rail
 - Product pipeline table
-- Attention list for blocked or in-review products
 - New request form
 - Admin workflow screen for completing stage requirements
-- Master-data driven dropdowns for domain, BU, priority, region/country scope, subdomain, source system, role assignments, status, and build status
+- Master-data driven dropdowns for domain, BU, priority, regional scope, subdomain, source system, role assignments, status, and build status
 - Timeline capture for request creation, stage saves, status changes, and automatic movement
-- Role-based local access using a Syngenta email: requesters see their own requests; admins see workflow and master-data maintenance.
+- Role-based access using Databricks identity headers: all authenticated Syngenta users can create requests; configured admins see workflow and master-data maintenance.
 - Admin master-data maintenance for adding/removing lookup values.
-- Temporary SQLite persistence through `server.py`
+- Databricks SQL persistence with SQLite available for local backup testing.
 
 There is no Streamlit dependency. The UI is plain HTML, CSS, and JavaScript so the layout is fully controlled. A small Python backend is included for local API testing.
 
 ## Run locally
 
 ```bash
-python3 server.py 8502
+GOVERNANCE_BACKEND=sqlite DATABRICKS_APP_PORT=8502 python3 app.py
 ```
 
-Open:
+Open `http://localhost:8502`.
 
-```text
-http://localhost:8502
-```
-
-The Databricks entrypoint also works locally:
-
-```bash
-DATABRICKS_APP_PORT=8502 python3 app.py
-```
+Local browser sessions still need a Databricks-style identity header to load `/api/session`. For API smoke testing, use `X-Forwarded-Email`. For development-only fallback identity, set `GOVERNANCE_ALLOW_IDENTITY_FALLBACK=true` and pass `?email=name@syngenta.com`.
 
 ## Files
 
@@ -42,20 +33,25 @@ DATABRICKS_APP_PORT=8502 python3 app.py
 - `styles.css` - layout and visual design
 - `app.js` - dashboard state, request creation, filtering, and API calls
 - `app.py` - Databricks App entrypoint
-- `app.yaml` - Databricks App runtime command and demo environment
-- `server.py` - local static server plus temporary SQLite API
+- `app.yaml` - Databricks App runtime command and SQL environment
+- `server.py` - static server plus SQLite/Databricks SQL API
 - `requirements.txt` - Python dependency manifest for Databricks Apps
 - `governance_tool.sqlite` - local database created automatically when the server starts
 - `schema.sql` - clean schema matching the current local app data model
 - `sql/databricks_schema.sql` - Unity Catalog / Delta table DDL template
 - `sql/seed_master_data.sql` - Databricks SQL seed data for master data and stage requirements
 - `docs/databricks-app.md` - Databricks deployment checklist and backend switch notes
+- `tests/smoke_test.py` - local smoke coverage for identity, request creation, workflow movement, and validation
 
 ## Databricks App deployment
 
 The repository can be used as a custom Databricks App source today.
 
-Current `app.yaml` runs the app in demo mode with SQLite stored at `/tmp/governance_tool.sqlite`. This is suitable for validating the UI and workflow in Databricks App compute, but it is not the durable production backend.
+Current `app.yaml` runs the app with the Databricks SQL backend:
+
+- Catalog: `venus_forge_dev`
+- Schema: `app_control_tables`
+- SQL warehouse resource key: `sql-warehouse`
 
 To deploy from Git:
 
@@ -64,13 +60,13 @@ To deploy from Git:
 3. Use branch `main` and source path `/`.
 4. Deploy.
 
-For the durable backend, create a Unity Catalog schema, run `sql/databricks_schema.sql`, run `sql/seed_master_data.sql`, then switch the backend from SQLite to a Databricks SQL adapter.
+For the durable backend, create the Unity Catalog schema, run `sql/databricks_schema.sql`, run `sql/seed_master_data.sql`, and grant the app service principal read/write access to the tables.
 
 See `docs/databricks-app.md` for the exact checklist.
 
-## Temporary workflow behavior
+## Workflow behavior
 
-- Master data is read from the local database through `/api/master-data`.
+- Master data is read through `/api/master-data`.
 - Domains are read from master data in the intake form.
 - New request emails must use the `@syngenta.com` format.
 - Scope supports Global and regional scope. Countries can be added later if needed.
@@ -80,8 +76,18 @@ See `docs/databricks-app.md` for the exact checklist.
 - Admin workflow data is read from `/api/requests/{request_id}/workflow`.
 - Admins can see every stage, but a stage can be submitted only when previous stages are complete.
 - Saving all required fields for the current stage automatically advances the product to the next stage.
-- Admin-only write APIs require `X-User-Email` with an admin email configured in `md_users`.
-- Demo admin email: `demo.admin@syngenta.com`.
+- Admin-only write APIs require a trusted Databricks identity header resolving to an admin email configured in `md_users`.
+- Current seeded admin emails include `kerem.seyid@syngenta.com` and `harish.krishnamoorthy@syngenta.com`.
+
+## Validation
+
+Run:
+
+```bash
+node --check app.js
+python3 -m py_compile app.py server.py tests/smoke_test.py
+python3 tests/smoke_test.py
+```
 
 ## Approval actions design
 
@@ -109,7 +115,7 @@ Recommended reporting panels:
 
 ## Local database
 
-The current temporary app database is `governance_tool.sqlite`.
+The local backup database is `governance_tool.sqlite`.
 
 It contains only the local app tables currently used by the UI and API:
 

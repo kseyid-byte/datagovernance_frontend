@@ -4,13 +4,17 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Governed Data Product Console</title>
-    <link rel="stylesheet" href="styles.css?v=loading-bar-20260610" />
+    <link rel="stylesheet" href="styles.css?v=prod-ready-20260610" />
   </head>
   <body>
     <div class="global-loading" id="globalLoading" role="status" aria-live="polite" hidden>
       <span class="global-loading-bar" aria-hidden="true"></span>
       <span class="spinner" aria-hidden="true"></span>
       <span class="loading-text">Loading</span>
+    </div>
+    <div class="app-error" id="appError" role="alert" hidden>
+      <span id="appErrorText"></span>
+      <button type="button" id="appErrorDismiss" aria-label="Dismiss error">Dismiss</button>
     </div>
     <div class="app-shell">
       <aside class="sidebar">
@@ -350,6 +354,6 @@
       </main>
     </div>
 
-    <script src="app.js?v=loading-bar-20260610"></script>
+    <script src="app.js?v=prod-ready-20260610"></script>
   </body>
 </html>
