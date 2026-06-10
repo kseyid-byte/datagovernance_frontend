@@ -4,9 +4,14 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Governed Data Product Console</title>
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=loading-bar-20260610" />
   </head>
   <body>
+    <div class="global-loading" id="globalLoading" role="status" aria-live="polite" hidden>
+      <span class="global-loading-bar" aria-hidden="true"></span>
+      <span class="spinner" aria-hidden="true"></span>
+      <span class="loading-text">Loading</span>
+    </div>
     <div class="app-shell">
       <aside class="sidebar">
         <div class="brand">
@@ -345,6 +350,6 @@
       </main>
     </div>
 
-    <script src="app.js"></script>
+    <script src="app.js?v=loading-bar-20260610"></script>
   </body>
 </html>

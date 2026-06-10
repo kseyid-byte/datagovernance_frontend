@@ -1687,6 +1687,12 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(ROOT), **kwargs)
 
+    def end_headers(self) -> None:
+        path = urlparse(self.path).path
+        if path in {"/", "/index.html", "/app.js", "/styles.css"}:
+            self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path

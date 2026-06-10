@@ -21,6 +21,9 @@ const loadingState = {
   savingWorkflow: false,
   submittingRequest: false,
 };
+const loadingStartedAt = {};
+const loadingClearTimers = {};
+const minimumLoadingMs = 450;
 const tableFilters = {};
 const stageDescriptions = {
   intake: "Capture request, requester, priority, scope, and expected date.",
@@ -75,12 +78,53 @@ const masterCollections = [
 ];
 
 function setLoading(key, value) {
-  loadingState[key] = value;
-  updateLoadingIndicators();
+  if (!(key in loadingState)) return;
+  if (value) {
+    if (loadingClearTimers[key]) {
+      clearTimeout(loadingClearTimers[key]);
+      delete loadingClearTimers[key];
+    }
+    loadingStartedAt[key] = Date.now();
+    if (!loadingState[key]) {
+      loadingState[key] = true;
+      updateLoadingIndicators();
+    }
+    return;
+  }
+
+  if (!loadingState[key] || loadingClearTimers[key]) return;
+  const elapsed = Date.now() - (loadingStartedAt[key] || 0);
+  const clearLoading = () => {
+    loadingState[key] = false;
+    delete loadingStartedAt[key];
+    delete loadingClearTimers[key];
+    updateLoadingIndicators();
+  };
+
+  if (elapsed < minimumLoadingMs) {
+    loadingClearTimers[key] = setTimeout(clearLoading, minimumLoadingMs - elapsed);
+    return;
+  }
+
+  clearLoading();
 }
 
 function isOverviewLoading() {
   return loadingState.masterData || loadingState.dashboard || loadingState.products;
+}
+
+function isAppLoading() {
+  return Object.values(loadingState).some(Boolean);
+}
+
+function loadingLabel() {
+  if (loadingState.savingWorkflow) return "Saving workflow changes";
+  if (loadingState.submittingRequest) return "Submitting request";
+  if (loadingState.workflow) return "Loading selected product";
+  if (loadingState.masterData) return "Loading setup";
+  if (loadingState.products) return productsLoaded ? "Refreshing products" : "Loading products";
+  if (loadingState.dashboard) return "Refreshing metrics";
+  return "Working";
 }
 
 function loadingMarkup(message) {
@@ -88,17 +132,20 @@ function loadingMarkup(message) {
 }
 
 function updateLoadingIndicators() {
+  const loadingText = loadingLabel();
+  const globalLoading = document.getElementById("globalLoading");
+  if (globalLoading) {
+    globalLoading.hidden = !isAppLoading();
+    const text = globalLoading.querySelector(".loading-text");
+    if (text) text.textContent = loadingText;
+  }
+  document.body?.classList.toggle("app-loading", isAppLoading());
+
   const overviewLoading = document.getElementById("overviewLoading");
   if (overviewLoading) {
     overviewLoading.hidden = !isOverviewLoading();
     const text = overviewLoading.querySelector(".loading-text");
-    if (text) {
-      text.textContent = loadingState.masterData
-        ? "Loading setup"
-        : loadingState.products
-          ? "Loading products"
-          : "Refreshing metrics";
-    }
+    if (text) text.textContent = loadingText;
   }
 
   document.querySelector(".metric-grid")?.classList.toggle("is-loading", loadingState.dashboard);
