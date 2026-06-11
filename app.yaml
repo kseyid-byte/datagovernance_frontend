@@ -4,20 +4,8 @@ command:
   - $DATABRICKS_APP_PORT
 
 env:
-  - name: GOVERNANCE_BACKEND
-    value: lakebase
   - name: GOVERNANCE_LAKEBASE_SCHEMA
     value: governance_app
-  - name: GOVERNANCE_SEED_DEMO_DATA
-    value: "false"
-  - name: GOVERNANCE_IMPORT_UC_SYNCED_DATA
-    value: "false"
-  - name: GOVERNANCE_UC_IMPORT_REPLACE
-    value: "false"
-  - name: GOVERNANCE_UC_SYNC_SCHEMA
-    value: app_product_details,app_control_tables
-  - name: GOVERNANCE_UC_SYNC_REQUESTS_TABLE
-    value: data_product_requests_new_synced
   - name: GOVERNANCE_ADMIN_EMAILS
     value: kerem.seyid@syngenta.com,harish.krishnamoorthy@syngenta.com
   - name: DATABRICKS_POSTGRES_ENDPOINT

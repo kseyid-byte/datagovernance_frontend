@@ -1,6 +1,6 @@
 -- Lakebase/PostgreSQL schema for the Governance Input Tool.
--- The app sets search_path before running this file, so tables are created in
--- GOVERNANCE_LAKEBASE_SCHEMA, which defaults to governance_app.
+-- Run this through the production migration process with search_path set to
+-- the application schema.
 
 CREATE TABLE IF NOT EXISTS md_domains (
   domain_id TEXT PRIMARY KEY,

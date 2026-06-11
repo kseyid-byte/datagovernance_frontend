@@ -837,30 +837,6 @@ textarea {
   font-size: 12px;
 }
 
-.design-preview-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
-  margin-top: 18px;
-}
-
-.approval-preview,
-.report-preview {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 14px;
-}
-
-.report-preview span {
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel-soft);
-  font-weight: 800;
-  font-size: 13px;
-}
-
 .admin-layout > .panel.large {
   grid-column: 2;
 }
@@ -1126,8 +1102,7 @@ textarea {
   .dashboard-grid,
   .request-layout,
   .admin-layout,
-  .master-data-layout,
-  .design-preview-grid {
+  .master-data-layout {
     grid-template-columns: 1fr;
   }
 

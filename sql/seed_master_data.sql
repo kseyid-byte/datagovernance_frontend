@@ -1,31 +1,35 @@
 -- Seed master data for the Governance Input Tool.
--- Replace ${catalog}.${schema} before running.
+-- Run after sql/lakebase_schema.sql with search_path set to the application schema.
 
-INSERT INTO ${catalog}.${schema}.md_domains VALUES
-  ('commercial', 'Commercial'),
-  ('dummy_domain', 'Dummy Domain');
+INSERT INTO md_domains VALUES
+  ('commercial', 'Commercial')
+ON CONFLICT DO NOTHING;
 
-INSERT INTO ${catalog}.${schema}.md_business_units VALUES
+INSERT INTO md_business_units VALUES
   ('cp', 'CP'),
   ('seeds', 'Seeds'),
-  ('vegetables', 'Vegetables');
+  ('vegetables', 'Vegetables')
+ON CONFLICT DO NOTHING;
 
-INSERT INTO ${catalog}.${schema}.md_product_types VALUES
+INSERT INTO md_product_types VALUES
   ('structured', 'Structured'),
   ('unstructured', 'Unstructured'),
-  ('mixed', 'Mixed');
+  ('mixed', 'Mixed')
+ON CONFLICT DO NOTHING;
 
-INSERT INTO ${catalog}.${schema}.md_platforms VALUES
+INSERT INTO md_platforms VALUES
   ('databricks', 'Databricks'),
   ('lynx', 'Lynx'),
-  ('both', 'Both');
+  ('both', 'Both')
+ON CONFLICT DO NOTHING;
 
-INSERT INTO ${catalog}.${schema}.md_priorities VALUES
+INSERT INTO md_priorities VALUES
   ('p1', 'P1'),
   ('p2', 'P2'),
-  ('p3', 'P3');
+  ('p3', 'P3')
+ON CONFLICT DO NOTHING;
 
-INSERT INTO ${catalog}.${schema}.md_statuses VALUES
+INSERT INTO md_statuses VALUES
   ('not_started', 'Not started'),
   ('in_review', 'In review'),
   ('in_progress', 'In progress'),
@@ -35,9 +39,10 @@ INSERT INTO ${catalog}.${schema}.md_statuses VALUES
   ('completed', 'Completed'),
   ('on_hold', 'On hold'),
   ('cancelled', 'Cancelled'),
-  ('deprecated', 'Deprecated');
+  ('deprecated', 'Deprecated')
+ON CONFLICT DO NOTHING;
 
-INSERT INTO ${catalog}.${schema}.md_stages VALUES
+INSERT INTO md_stages VALUES
   ('intake', 'Intake', 1),
   ('reuse_domain', 'Domain Ownership', 2),
   ('ownership', 'Estimation', 3),
@@ -45,52 +50,50 @@ INSERT INTO ${catalog}.${schema}.md_stages VALUES
   ('architecture_review', 'Architecture Review', 5),
   ('build_validate', 'Build / Validate', 6),
   ('publish', 'Publish', 7),
-  ('operate', 'Operate', 8);
+  ('operate', 'Operate', 8)
+ON CONFLICT DO NOTHING;
 
-INSERT INTO ${catalog}.${schema}.md_subdomains VALUES
+INSERT INTO md_subdomains VALUES
   ('non_transactional_customers', 'Non Transactional Customers', 'commercial'),
   ('pricing_conditions', 'Pricing and Conditions', 'commercial'),
   ('product_market_performance', 'Product & Market Performance', 'commercial'),
   ('sales_commercial_transactions', 'Sales & Commercial Transactions', 'commercial'),
   ('marketing_engagement', 'Marketing & Engagement', 'commercial'),
-  ('digital_agronomy_solutions', 'Digital & Agronomy Solutions', 'commercial'),
-  ('dummy_subdomain', 'Dummy Subdomain', 'dummy_domain');
+  ('digital_agronomy_solutions', 'Digital & Agronomy Solutions', 'commercial')
+ON CONFLICT DO NOTHING;
 
-INSERT INTO ${catalog}.${schema}.md_users VALUES
-  ('admin_demo', 'Demo Admin', 'demo.admin@syngenta.com', 'admin'),
+INSERT INTO md_users VALUES
   ('admin_kerem', 'Kerem Seyid', 'kerem.seyid@syngenta.com', 'admin'),
-  ('admin_harish', 'Harish Krishnamoorthy', 'harish.krishnamoorthy@syngenta.com', 'admin'),
-  ('udo_anna', 'Anna Khan', 'anna.khan@syngenta.com', 'data_domain_owner'),
-  ('udo_maria', 'Maria Rossi', 'maria.rossi@syngenta.com', 'data_domain_owner'),
-  ('ddl_james', 'James Silva', 'james.silva@syngenta.com', 'domain_delivery_lead'),
-  ('ddl_nina', 'Nina Brown', 'nina.brown@syngenta.com', 'domain_delivery_lead'),
-  ('pm_lynx_maya', 'Maya Patel', 'maya.patel@syngenta.com', 'lynx_pm'),
-  ('pm_lynx_sam', 'Sam Martin', 'sam.martin@syngenta.com', 'lynx_pm');
+  ('admin_harish', 'Harish Krishnamoorthy', 'harish.krishnamoorthy@syngenta.com', 'admin')
+ON CONFLICT DO NOTHING;
 
-INSERT INTO ${catalog}.${schema}.md_source_systems VALUES
+INSERT INTO md_source_systems VALUES
   ('sap', 'SAP'),
   ('salesforce', 'Salesforce'),
   ('sharepoint', 'SharePoint'),
   ('databricks', 'Databricks'),
-  ('manual_upload', 'Manual upload');
+  ('manual_upload', 'Manual upload')
+ON CONFLICT DO NOTHING;
 
-INSERT INTO ${catalog}.${schema}.md_scope_options VALUES
+INSERT INTO md_scope_options VALUES
   ('global', 'Global', 'Global', NULL),
   ('europe', 'Europe', 'Region', NULL),
   ('latin_america', 'Latin America', 'Region', NULL),
   ('north_america', 'North America', 'Region', NULL),
   ('amea', 'AMEA', 'Region', NULL),
-  ('janz', 'JANZ', 'Region', NULL);
+  ('janz', 'JANZ', 'Region', NULL)
+ON CONFLICT DO NOTHING;
 
-INSERT INTO ${catalog}.${schema}.md_build_statuses VALUES
+INSERT INTO md_build_statuses VALUES
   ('not_started', 'Not started'),
   ('in_build', 'In build'),
   ('testing', 'Testing'),
   ('in_uat', 'In UAT'),
   ('built', 'Built'),
-  ('blocked', 'Blocked');
+  ('blocked', 'Blocked')
+ON CONFLICT DO NOTHING;
 
-INSERT INTO ${catalog}.${schema}.md_stage_requirements VALUES
+INSERT INTO md_stage_requirements VALUES
   ('intake_product_type_id', 'intake', 'product_type_id', 'Product type', 'select', 'productTypes', 'Select the data product type.', 1, 1),
   ('intake_target_platform_id', 'intake', 'target_platform_id', 'Target platform', 'select', 'platforms', 'Select the target delivery platform.', 2, 1),
   ('intake_priority_id', 'intake', 'priority_id', 'Priority', 'select', 'priorities', 'Select the request priority.', 3, 1),
@@ -124,4 +127,5 @@ INSERT INTO ${catalog}.${schema}.md_stage_requirements VALUES
   ('publish_alation_documented', 'publish', 'alation_documented', 'Documented in Alation', 'checkbox', NULL, 'Confirm the product is documented in Alation.', 1, 1),
   ('publish_release_notes', 'publish', 'release_notes', 'Release notes', 'textarea', NULL, 'Add release notes or support context.', 2, 1),
   ('operate_support_model_confirmed', 'operate', 'support_model_confirmed', 'Support model confirmed', 'checkbox', NULL, 'Confirm owner, refresh, and support model.', 1, 1),
-  ('operate_review_cycle_confirmed', 'operate', 'review_cycle_confirmed', 'Review cycle confirmed', 'checkbox', NULL, 'Confirm value and quality review cadence.', 2, 1);
+  ('operate_review_cycle_confirmed', 'operate', 'review_cycle_confirmed', 'Review cycle confirmed', 'checkbox', NULL, 'Confirm value and quality review cadence.', 2, 1)
+ON CONFLICT DO NOTHING;
