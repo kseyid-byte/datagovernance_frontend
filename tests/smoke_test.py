@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -40,6 +41,7 @@ def main() -> None:
             dashboard = server.get_dashboard(db)
             assert dashboard["total"] >= 15
 
+            created_at = (datetime.now(timezone.utc) - timedelta(days=9)).isoformat()
             created = server.insert_request(
                 db,
                 {
@@ -51,9 +53,15 @@ def main() -> None:
                     "requesterEmail": "smoke.tester@syngenta.com",
                     "expectedDate": "2026-06-30",
                 },
+                timestamp=created_at,
             )
             assert created["stageId"] == "intake"
             assert created["id"] == "00000016"
+
+            db.execute("DELETE FROM request_timeline WHERE request_id = ?", (created["requestId"],))
+            created_without_timeline = server.get_request_by_id(db, created["requestId"])
+            assert created_without_timeline["daysInStage"] >= 8
+            assert created_without_timeline["currentStageEnteredAt"] == created_at[:10]
 
             workflow = server.save_workflow_answers(
                 db,

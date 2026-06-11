@@ -2111,12 +2111,6 @@ def request_select_sql() -> str:
                 AND t.event_type = 'stage_advanced'
                 AND t.to_stage_id = r.current_stage_id
             ),
-            (
-              SELECT MAX(t.created_at)
-              FROM request_timeline t
-              WHERE t.request_id = r.request_id
-                AND t.stage_id = r.current_stage_id
-            ),
             r.created_at
           ) AS current_stage_entered_at
         FROM data_product_requests_new r
@@ -2160,7 +2154,16 @@ def request_overview_select_sql() -> str:
           ddl.display_name AS domain_delivery_lead_name,
           lpm.display_name AS lynx_pm_name,
           bs.build_status_name,
-          COALESCE(r.last_status_change_date, r.updated_at, r.created_at) AS current_stage_entered_at
+          COALESCE(
+            (
+              SELECT MAX(t.created_at)
+              FROM request_timeline t
+              WHERE t.request_id = r.request_id
+                AND t.event_type = 'stage_advanced'
+                AND t.to_stage_id = r.current_stage_id
+            ),
+            r.created_at
+          ) AS current_stage_entered_at
         FROM data_product_requests_new r
         JOIN md_domains d ON d.domain_id = r.lead_domain_id
         LEFT JOIN md_business_units bu ON bu.business_unit_id = r.business_unit_id
@@ -2550,8 +2553,30 @@ def add_timeline(
     )
 
 
+def effective_stage_entered_at(row: sqlite3.Row) -> str:
+    return valid_timestamp_or_empty(row["current_stage_entered_at"]) or valid_timestamp_or_empty(row["created_at"]) or now()
+
+
+def valid_timestamp_or_empty(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        parse_timestamp(text)
+    except ValueError:
+        return ""
+    return text
+
+
+def parse_timestamp(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 def serialize_request(row: sqlite3.Row) -> dict:
-    current_stage_entered_at = row["current_stage_entered_at"] or row["created_at"]
+    current_stage_entered_at = effective_stage_entered_at(row)
     delivery_lead = row["delivery_lead"] or ""
     delivery_lead_name = row["delivery_lead_name"] or delivery_lead
     return {
@@ -2601,17 +2626,17 @@ def serialize_request(row: sqlite3.Row) -> dict:
 
 def days_since(value: str) -> int:
     try:
-        entered_at = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
+        entered_at = parse_timestamp(value)
+    except (TypeError, ValueError):
         return 0
     return max(0, (datetime.now(timezone.utc) - entered_at).days)
 
 
 def format_date(value: str) -> str:
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00")).date().isoformat()
-    except ValueError:
-        return value[:10]
+        return parse_timestamp(value).date().isoformat()
+    except (TypeError, ValueError):
+        return str(value or "")[:10]
 
 
 class GovernanceHandler(SimpleHTTPRequestHandler):
