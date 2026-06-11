@@ -15,7 +15,7 @@ env:
   - name: GOVERNANCE_UC_IMPORT_REPLACE
     value: "true"
   - name: GOVERNANCE_UC_SYNC_SCHEMA
-    value: app_control_tables
+    value: app_product_details,app_control_tables
   - name: GOVERNANCE_UC_SYNC_REQUESTS_TABLE
     value: data_product_requests_new_synced
   - name: GOVERNANCE_ADMIN_EMAILS

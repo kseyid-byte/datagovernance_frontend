@@ -55,7 +55,7 @@ The `codex/lakebase-backend` branch runs the app with the Lakebase backend:
 - App database resource key: `governance-lakebase`
 - PostgreSQL schema: `governance_app`
 - Admin allowlist: `kerem.seyid@syngenta.com`, `harish.krishnamoorthy@syngenta.com`
-- Product request data is imported from the Lakebase synced copy of the Unity Catalog table: `app_control_tables.data_product_requests_new_synced`.
+- Product request data is imported from the Lakebase synced copy of the Unity Catalog table, preferring `app_product_details.data_product_requests_new_synced` or `app_control_tables.data_product_requests_new_synced`.
 - UC import replace mode is enabled, so Lakebase request rows not present in UC are removed on startup.
 
 To deploy from Git:

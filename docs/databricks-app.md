@@ -22,7 +22,7 @@ GOVERNANCE_LAKEBASE_SCHEMA: governance_app
 GOVERNANCE_SEED_DEMO_DATA: "false"
 GOVERNANCE_IMPORT_UC_SYNCED_DATA: "true"
 GOVERNANCE_UC_IMPORT_REPLACE: "true"
-GOVERNANCE_UC_SYNC_SCHEMA: app_control_tables
+GOVERNANCE_UC_SYNC_SCHEMA: app_product_details,app_control_tables
 GOVERNANCE_UC_SYNC_REQUESTS_TABLE: data_product_requests_new_synced
 GOVERNANCE_ADMIN_EMAILS: kerem.seyid@syngenta.com,harish.krishnamoorthy@syngenta.com
 DATABRICKS_POSTGRES_ENDPOINT:
@@ -92,12 +92,12 @@ Expected response shape:
     "enabled": true,
     "status": "imported",
     "replace": true,
-    "source": "app_control_tables.data_product_requests_new_synced"
+    "source": "app_product_details.data_product_requests_new_synced"
   }
 }
 ```
 
-For Unity Catalog data to appear in the app, create a Lakebase synced table from `venus_forge_dev.app_control_tables.data_product_requests_new`. With the default Databricks naming, the synced table should appear in Lakebase as `app_control_tables.data_product_requests_new_synced`. If `/api/health` shows `ucImport.status = "skipped"`, the synced table has not been created or the schema/table names do not match the app config. With replace mode enabled, existing demo/request rows not present in the synced UC source are removed from the Lakebase app table on startup.
+For Unity Catalog data to appear in the app, create a Lakebase synced table from the UC request table. Databricks exposes synced tables in Postgres by inheriting the UC schema name and adding `_synced` to the table name. For example, `venus_forge_dev.app_product_details.data_product_requests_new` becomes `app_product_details.data_product_requests_new_synced` in Lakebase. If `/api/health` shows `ucImport.status = "skipped"`, check `ucImport.candidates`; the app now lists matching Lakebase tables it can see. With replace mode enabled, existing demo/request rows not present in the synced UC source are removed from the Lakebase app table on startup.
 
 Then validate through the UI:
 

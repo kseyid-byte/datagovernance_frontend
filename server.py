@@ -986,17 +986,21 @@ def import_uc_synced_requests(db: sqlite3.Connection) -> None:
     if not UC_SYNC_SCHEMA or not UC_SYNC_REQUESTS_TABLE:
         UC_IMPORT_STATUS.update({"enabled": True, "status": "skipped", "reason": "UC sync schema/table is not configured"})
         return
-    if not lakebase_table_exists(db, UC_SYNC_SCHEMA, UC_SYNC_REQUESTS_TABLE):
+
+    resolved_table = resolve_uc_synced_table(db)
+    if not resolved_table:
         UC_IMPORT_STATUS.update(
             {
                 "enabled": True,
                 "status": "skipped",
-                "reason": f"Synced UC table not found: {UC_SYNC_SCHEMA}.{UC_SYNC_REQUESTS_TABLE}",
+                "reason": f"Synced UC table not found. Configured: {UC_SYNC_SCHEMA}.{UC_SYNC_REQUESTS_TABLE}",
+                "candidates": lakebase_synced_table_candidates(db),
             }
         )
         return
+    source_schema, source_table = resolved_table
 
-    source_columns = lakebase_table_columns(db, UC_SYNC_SCHEMA, UC_SYNC_REQUESTS_TABLE)
+    source_columns = lakebase_table_columns(db, source_schema, source_table)
     column_map = {column.lower(): column for column in source_columns}
 
     def expr(candidates: list[str], fallback: str = "NULL") -> str:
@@ -1009,7 +1013,7 @@ def import_uc_synced_requests(db: sqlite3.Connection) -> None:
     def coalesce(candidates: list[str], fallback: str) -> str:
         return f"COALESCE({expr(candidates)}, {fallback})"
 
-    source_ref = f"{quote_postgres_identifier(UC_SYNC_SCHEMA)}.{quote_postgres_identifier(UC_SYNC_REQUESTS_TABLE)}"
+    source_ref = f"{quote_postgres_identifier(source_schema)}.{quote_postgres_identifier(source_table)}"
     row_hash = "md5(to_jsonb(s)::text)"
     request_id = coalesce(["request_id", "id", "data_product_id"], row_hash)
     request_number = coalesce(
@@ -1187,10 +1191,72 @@ def import_uc_synced_requests(db: sqlite3.Connection) -> None:
             "enabled": True,
             "status": "imported",
             "replace": UC_IMPORT_REPLACE,
-            "source": f"{UC_SYNC_SCHEMA}.{UC_SYNC_REQUESTS_TABLE}",
+            "source": f"{source_schema}.{source_table}",
             "requests": int(imported_count or 0),
         }
     )
+
+
+def resolve_uc_synced_table(db: sqlite3.Connection) -> tuple[str, str] | None:
+    configured_schemas = configured_names(UC_SYNC_SCHEMA)
+    configured_tables = configured_names(UC_SYNC_REQUESTS_TABLE)
+    for schema in configured_schemas:
+        for table in configured_tables:
+            if lakebase_table_exists(db, schema, table):
+                return schema, table
+
+    candidates = lakebase_synced_table_candidates(db)
+    if not candidates:
+        return None
+    preferred_schemas = [*configured_schemas, "app_product_details", "app_control_tables"]
+    preferred_tables = [
+        *configured_tables,
+        "data_product_requests_new_synced",
+        "data_product_requests_synced",
+        "data_product_requests_new",
+        "data_product_requests",
+    ]
+
+    def score(candidate: dict) -> tuple[int, int, str, str]:
+        schema = candidate["schema"]
+        table = candidate["table"]
+        schema_score = len(preferred_schemas) - preferred_schemas.index(schema) if schema in preferred_schemas else 0
+        table_score = len(preferred_tables) - preferred_tables.index(table) if table in preferred_tables else 0
+        synced_score = 5 if table.endswith("_synced") else 0
+        request_score = 3 if "request" in table else 0
+        return schema_score + table_score + synced_score + request_score, table_score, schema, table
+
+    best = sorted(candidates, key=score, reverse=True)[0]
+    return best["schema"], best["table"]
+
+
+def configured_names(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def lakebase_synced_table_candidates(db: sqlite3.Connection) -> list[dict]:
+    rows = db.execute(
+        """
+        SELECT table_schema AS schema, table_name AS table
+        FROM information_schema.tables
+        WHERE table_type = 'BASE TABLE'
+          AND table_schema NOT IN ('information_schema', 'pg_catalog', ?)
+          AND (
+            table_name = ?
+            OR table_name IN (
+              'data_product_requests_new_synced',
+              'data_product_requests_synced',
+              'data_product_requests_new',
+              'data_product_requests'
+            )
+            OR LOWER(table_name) LIKE ?
+          )
+        ORDER BY table_schema, table_name
+        LIMIT 25
+        """,
+        (LAKEBASE_SCHEMA, configured_names(UC_SYNC_REQUESTS_TABLE)[0] if configured_names(UC_SYNC_REQUESTS_TABLE) else "", "%request%"),
+    ).fetchall()
+    return [{"schema": row["schema"], "table": row["table"]} for row in rows]
 
 
 def lakebase_table_exists(db: sqlite3.Connection, schema: str, table: str) -> bool:
