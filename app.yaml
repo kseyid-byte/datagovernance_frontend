@@ -9,6 +9,8 @@ env:
   - name: GOVERNANCE_LAKEBASE_SCHEMA
     value: governance_app
   - name: GOVERNANCE_SEED_DEMO_DATA
-    value: "false"
+    value: "true"
+  - name: GOVERNANCE_ADMIN_EMAILS
+    value: kerem.seyid@syngenta.com,harish.krishnamoorthy@syngenta.com
   - name: DATABRICKS_POSTGRES_ENDPOINT
     valueFrom: governance-lakebase

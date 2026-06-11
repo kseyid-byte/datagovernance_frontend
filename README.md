@@ -54,6 +54,8 @@ The `codex/lakebase-backend` branch runs the app with the Lakebase backend:
 - Lakebase database: `governance_app_dev`
 - App database resource key: `governance-lakebase`
 - PostgreSQL schema: `governance_app`
+- Admin allowlist: `kerem.seyid@syngenta.com`, `harish.krishnamoorthy@syngenta.com`
+- Demo product request seeding is enabled on this branch for user testing.
 
 To deploy from Git:
 

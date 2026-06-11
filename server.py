@@ -25,6 +25,11 @@ IDENTITY_DEBUG = os.getenv("GOVERNANCE_IDENTITY_DEBUG", "").strip().lower() in {
 ALLOW_IDENTITY_FALLBACK = os.getenv("GOVERNANCE_ALLOW_IDENTITY_FALLBACK", "").strip().lower() in {"1", "true", "yes"}
 SEED_DEMO_DATA = os.getenv("GOVERNANCE_SEED_DEMO_DATA", "true").strip().lower() in {"1", "true", "yes"}
 ADMIN_ROLE_KEYS = {"admin", "data_domain_owner", "domain_delivery_lead", "lynx_pm"}
+CONFIGURED_ADMIN_EMAILS = {
+    email.strip().lower()
+    for email in os.getenv("GOVERNANCE_ADMIN_EMAILS", "").split(",")
+    if email.strip()
+}
 MASTER_DATA_CACHE_SECONDS = 300
 MASTER_DATA_CACHE = {"expires_at": 0.0, "data": None}
 LAKEBASE_TOKEN_CACHE = {"expires_at": 0.0, "token": ""}
@@ -1233,8 +1238,8 @@ def get_session(db: sqlite3.Connection, email: str) -> dict:
         """,
         (clean_email,),
     ).fetchone()
-    can_admin = bool(user and user["role_key"] in ADMIN_ROLE_KEYS)
-    can_delete_master_data = bool(user and user["role_key"] == "admin")
+    can_admin = clean_email in CONFIGURED_ADMIN_EMAILS or bool(user and user["role_key"] in ADMIN_ROLE_KEYS)
+    can_delete_master_data = clean_email in CONFIGURED_ADMIN_EMAILS or bool(user and user["role_key"] == "admin")
     return {
         "email": clean_email,
         "role": "admin" if can_admin else "requester",

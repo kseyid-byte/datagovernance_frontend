@@ -19,7 +19,8 @@ The Lakebase branch uses:
 ```yaml
 GOVERNANCE_BACKEND: lakebase
 GOVERNANCE_LAKEBASE_SCHEMA: governance_app
-GOVERNANCE_SEED_DEMO_DATA: "false"
+GOVERNANCE_SEED_DEMO_DATA: "true"
+GOVERNANCE_ADMIN_EMAILS: kerem.seyid@syngenta.com,harish.krishnamoorthy@syngenta.com
 DATABRICKS_POSTGRES_ENDPOINT:
   valueFrom: governance-lakebase
 ```
@@ -59,7 +60,7 @@ On startup in Lakebase mode, the app:
 2. Creates the configured PostgreSQL schema if needed.
 3. Creates all app tables from `sql/lakebase_schema.sql` if they do not exist.
 4. Seeds master data and workflow stage requirements.
-5. Does not seed demo product requests because `GOVERNANCE_SEED_DEMO_DATA=false` in `app.yaml`.
+5. Seeds demo product requests when the request table is empty, so the app has data for testing.
 
 ## Validation
 
@@ -85,13 +86,13 @@ Expected response shape:
 }
 ```
 
-The request count can be `0` on a fresh Lakebase database because demo product request seeding is disabled for deployment. Master data counts should not be `0`.
+On a fresh Lakebase database, request count should become non-zero after startup because demo product seeding is enabled for this test branch. Master data counts should not be `0`.
 
 Then validate through the UI:
 
 1. Create a request as a normal Syngenta user.
 2. Confirm it appears on the overview table immediately.
-3. Sign in as an admin email stored in `md_users`.
+3. Sign in as an admin email stored in `md_users` or listed in `GOVERNANCE_ADMIN_EMAILS`.
 4. Open the admin workflow and save a stage.
 5. Confirm the stage, dashboard counts, and timeline update without waiting on a SQL warehouse.
 
