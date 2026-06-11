@@ -99,6 +99,8 @@ Expected response shape:
 
 For Unity Catalog data to appear in the app, create a Lakebase synced table from the UC request table. Databricks exposes synced tables in Postgres by inheriting the UC schema name and adding `_synced` to the table name. For example, `venus_forge_dev.app_product_details.data_product_requests_new` becomes `app_product_details.data_product_requests_new_synced` in Lakebase. If `/api/health` shows `ucImport.status = "skipped"`, check `ucImport.candidates`; the app now lists matching Lakebase tables it can see. With replace mode enabled, existing demo/request rows not present in the synced UC source are removed from the Lakebase app table on startup.
 
+Opening `/api/health` also forces a UC import refresh, so you can create the synced table first and then refresh health without waiting for a full app restart.
+
 Then validate through the UI:
 
 1. Create a request as a normal Syngenta user.

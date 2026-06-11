@@ -38,6 +38,7 @@ MASTER_DATA_CACHE_SECONDS = 300
 MASTER_DATA_CACHE = {"expires_at": 0.0, "data": None}
 LAKEBASE_TOKEN_CACHE = {"expires_at": 0.0, "token": ""}
 UC_IMPORT_STATUS = {"enabled": IMPORT_UC_SYNCED_DATA, "status": "not_run"}
+UC_IMPORT_REFRESH_SECONDS = int(os.getenv("GOVERNANCE_UC_IMPORT_REFRESH_SECONDS", "60"))
 MAX_REQUEST_BODY_BYTES = 1_000_000
 MAX_TEXT_LENGTH = 500
 MAX_TEXTAREA_LENGTH = 4000
@@ -983,6 +984,7 @@ def import_uc_synced_requests(db: sqlite3.Connection) -> None:
     if not is_lakebase_db(db) or not IMPORT_UC_SYNCED_DATA:
         UC_IMPORT_STATUS.update({"enabled": IMPORT_UC_SYNCED_DATA, "status": "disabled"})
         return
+    UC_IMPORT_STATUS["lastAttemptAt"] = now()
     if not UC_SYNC_SCHEMA or not UC_SYNC_REQUESTS_TABLE:
         UC_IMPORT_STATUS.update({"enabled": True, "status": "skipped", "reason": "UC sync schema/table is not configured"})
         return
@@ -1195,6 +1197,22 @@ def import_uc_synced_requests(db: sqlite3.Connection) -> None:
             "requests": int(imported_count or 0),
         }
     )
+
+
+def refresh_uc_import_if_due(db: sqlite3.Connection, *, force: bool = False) -> None:
+    if not is_lakebase_db(db) or not IMPORT_UC_SYNCED_DATA:
+        return
+    last_attempt = str(UC_IMPORT_STATUS.get("lastAttemptAt") or "")
+    if not force and last_attempt:
+        try:
+            last_attempt_time = datetime.fromisoformat(last_attempt.replace("Z", "+00:00")).timestamp()
+            if time.time() - last_attempt_time < UC_IMPORT_REFRESH_SECONDS:
+                return
+        except ValueError:
+            pass
+    import_uc_synced_requests(db)
+    seed_missing_timelines(db)
+    db.commit()
 
 
 def resolve_uc_synced_table(db: sqlite3.Connection) -> tuple[str, str] | None:
@@ -2536,6 +2554,7 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
                 else:
                     try:
                         with connect() as db:
+                            refresh_uc_import_if_due(db, force=True)
                             payload["counts"] = ensure_master_data_ready(db) if is_lakebase_db(db) else master_data_counts(db)
                     except Exception as exc:
                         payload["ok"] = False
@@ -2563,10 +2582,12 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
                 return
             if path == "/api/dashboard":
                 with connect() as db:
+                    refresh_uc_import_if_due(db)
                     self.send_json(get_dashboard(db))
                 return
             if path == "/api/requests":
                 with connect() as db:
+                    refresh_uc_import_if_due(db)
                     email = query.get("email", [""])[0]
                     self.send_json(get_requests_for_user(db, email) if email else get_requests(db))
                 return
