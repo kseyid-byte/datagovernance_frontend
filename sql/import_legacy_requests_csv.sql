@@ -100,8 +100,8 @@ SELECT
   CASE
     WHEN LOWER(TRIM(status)) = 'completed' THEN 'operate'
     WHEN LOWER(TRIM(status)) = 'in progress' THEN 'build_validate'
-    WHEN LOWER(TRIM(status)) = 'approved' THEN 'reuse_domain'
-    WHEN LOWER(TRIM(status)) = 'blocked' THEN 'reuse_domain'
+    WHEN LOWER(TRIM(status)) = 'approved' THEN 'domain_ownership'
+    WHEN LOWER(TRIM(status)) = 'blocked' THEN 'domain_ownership'
     ELSE 'intake'
   END AS current_stage_id,
   CASE
