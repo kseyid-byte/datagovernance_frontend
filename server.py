@@ -811,7 +811,7 @@ def seed_master_data(db: sqlite3.Connection) -> None:
             ("deprecated", "Deprecated"),
         ],
     )
-    insert_missing(db, "md_stages", STAGES)
+    sync_eight_stage_master_data(db)
     seed_commercial_subdomains(db)
     insert_missing(db, "md_subdomains", [("dummy_subdomain", "Dummy Subdomain", "dummy_domain")])
     insert_missing(
@@ -884,6 +884,108 @@ def insert_missing(db: sqlite3.Connection, table: str, rows: list[tuple]) -> Non
                 db.execute(f"INSERT INTO {table} VALUES ({placeholders})", row)
         return
     db.executemany(f"INSERT OR IGNORE INTO {table} VALUES ({placeholders})", rows)
+
+
+def sync_eight_stage_master_data(db: sqlite3.Connection) -> None:
+    restore_merged_stage_to_eight_stage_model(db)
+    insert_missing(db, "md_stages", STAGES)
+    for stage_id, stage_name, stage_number in STAGES:
+        db.execute(
+            "UPDATE md_stages SET stage_name = ?, stage_number = ? WHERE stage_id = ?",
+            (stage_name, stage_number, stage_id),
+        )
+    db.execute("DELETE FROM md_stages WHERE stage_id = 'domain_ownership'")
+
+
+def restore_merged_stage_to_eight_stage_model(db: sqlite3.Connection) -> None:
+    migrate_stage_answer_prefix(db, "domain_ownership", "reuse_domain", STAGE_REQUIREMENTS["reuse_domain"])
+    migrate_stage_answer_prefix(db, "domain_ownership", "ownership", STAGE_REQUIREMENTS["ownership"])
+    ownership_keys = [key for key, *_ in STAGE_REQUIREMENTS["ownership"]]
+    ownership_requirement_ids = [f"ownership_{key}" for key in ownership_keys]
+    has_ownership_answers = """
+        EXISTS (
+          SELECT 1
+          FROM request_stage_answers ans
+          WHERE ans.request_id = data_product_requests_new.request_id
+            AND ans.requirement_id IN ({})
+            AND TRIM(ans.answer_value) <> ''
+        )
+    """.format(", ".join(["?"] * len(ownership_requirement_ids)))
+    db.execute(
+        f"""
+        UPDATE data_product_requests_new
+        SET current_stage_id = 'ownership'
+        WHERE current_stage_id = 'domain_ownership'
+          AND (
+            data_domain_owner_user_id IS NOT NULL
+            OR source_system_id IS NOT NULL
+            OR domain_delivery_lead_user_id IS NOT NULL
+            OR lynx_pm_user_id IS NOT NULL
+            OR {has_ownership_answers}
+          )
+        """,
+        tuple(ownership_requirement_ids),
+    )
+    db.execute(
+        """
+        UPDATE data_product_requests_new
+        SET current_stage_id = 'reuse_domain'
+        WHERE current_stage_id = 'domain_ownership'
+        """
+    )
+    for column in ("stage_id", "from_stage_id", "to_stage_id"):
+        db.execute(
+            f"""
+            UPDATE request_timeline
+            SET {column} = 'ownership'
+            WHERE {column} = 'domain_ownership'
+              AND request_id IN (
+                SELECT request_id
+                FROM data_product_requests_new
+                WHERE current_stage_id = 'ownership'
+              )
+            """
+        )
+        db.execute(
+            f"UPDATE request_timeline SET {column} = 'reuse_domain' WHERE {column} = 'domain_ownership'"
+        )
+
+
+def migrate_stage_answer_prefix(
+    db: sqlite3.Connection,
+    old_stage_id: str,
+    new_stage_id: str,
+    requirements: list[tuple],
+) -> None:
+    for key, *_ in requirements:
+        old_requirement_id = f"{old_stage_id}_{key}"
+        new_requirement_id = f"{new_stage_id}_{key}"
+        rows = db.execute(
+            """
+            SELECT answer_id, request_id, answer_value, updated_at
+            FROM request_stage_answers
+            WHERE requirement_id = ?
+            """,
+            (old_requirement_id,),
+        ).fetchall()
+        for row in rows:
+            exists = db.execute(
+                """
+                SELECT 1
+                FROM request_stage_answers
+                WHERE request_id = ? AND requirement_id = ?
+                """,
+                (row["request_id"], new_requirement_id),
+            ).fetchone()
+            if not exists:
+                db.execute(
+                    """
+                    INSERT INTO request_stage_answers (answer_id, request_id, requirement_id, answer_value, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (str(uuid.uuid4()), row["request_id"], new_requirement_id, row["answer_value"], row["updated_at"]),
+                )
+            db.execute("DELETE FROM request_stage_answers WHERE answer_id = ?", (row["answer_id"],))
 
 
 def seed_commercial_subdomains(db: sqlite3.Connection) -> None:
@@ -1072,6 +1174,8 @@ def import_uc_synced_requests(db: sqlite3.Connection) -> None:
           WHEN 'intake' THEN 'intake'
           WHEN 'reuse_domain' THEN 'reuse_domain'
           WHEN 'reuse / domain' THEN 'reuse_domain'
+          WHEN 'domain_ownership' THEN 'reuse_domain'
+          WHEN 'domain ownership' THEN 'reuse_domain'
           WHEN 'ownership' THEN 'ownership'
           WHEN 'requirements' THEN 'requirements'
           WHEN 'architecture_review' THEN 'architecture_review'

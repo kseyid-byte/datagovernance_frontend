@@ -38,6 +38,59 @@ def main() -> None:
             session = server.get_session(db, "kerem.seyid@syngenta.com")
             assert session["canAdmin"] is True
 
+            restore_request = db.execute(
+                "SELECT request_id FROM data_product_requests_new WHERE request_number = ?",
+                ("00000007",),
+            ).fetchone()["request_id"]
+            db.execute("INSERT OR IGNORE INTO md_stages VALUES (?, ?, ?)", ("domain_ownership", "Domain Ownership", 2))
+            db.execute(
+                "UPDATE data_product_requests_new SET current_stage_id = ? WHERE request_id = ?",
+                ("domain_ownership", restore_request),
+            )
+            db.execute(
+                """
+                INSERT INTO request_stage_answers (answer_id, request_id, requirement_id, answer_value, updated_at)
+                VALUES (?, ?, ?, ?, ?), (?, ?, ?, ?, ?)
+                """,
+                (
+                    "leftover-domain-answer",
+                    restore_request,
+                    "domain_ownership_jira_link",
+                    "https://jira.example.com/browse/RESTORE",
+                    "2026-01-01T00:00:00+00:00",
+                    "leftover-owner-answer",
+                    restore_request,
+                    "domain_ownership_data_domain_owner_user_id",
+                    "udo_anna",
+                    "2026-01-01T00:00:00+00:00",
+                ),
+            )
+            server.seed_master_data(db)
+            server.seed_stage_requirements(db)
+
+            master_data = server.get_master_data(db)
+            assert [stage["id"] for stage in master_data["stages"]] == [
+                "intake",
+                "reuse_domain",
+                "ownership",
+                "requirements",
+                "architecture_review",
+                "build_validate",
+                "publish",
+                "operate",
+            ]
+            restored = server.get_request_by_id(db, restore_request)
+            assert restored["stageId"] == "ownership"
+            assert not db.execute("SELECT 1 FROM md_stages WHERE stage_id = ?", ("domain_ownership",)).fetchone()
+            assert db.execute(
+                "SELECT 1 FROM request_stage_answers WHERE request_id = ? AND requirement_id = ?",
+                (restore_request, "reuse_domain_jira_link"),
+            ).fetchone()
+            assert db.execute(
+                "SELECT 1 FROM request_stage_answers WHERE request_id = ? AND requirement_id = ?",
+                (restore_request, "ownership_data_domain_owner_user_id"),
+            ).fetchone()
+
             dashboard = server.get_dashboard(db)
             assert dashboard["total"] >= 15
 
