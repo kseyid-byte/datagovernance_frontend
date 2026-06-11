@@ -47,14 +47,9 @@ def main() -> None:
                     "description": "Smoke test request",
                     "domain": "commercial",
                     "businessUnit": "cp",
-                    "productType": "structured",
-                    "platform": "databricks",
-                    "priority": "p2",
-                    "scope": "global",
                     "requester": "Smoke Tester",
                     "requesterEmail": "smoke.tester@syngenta.com",
                     "expectedDate": "2026-06-30",
-                    "additionalComments": "Created by smoke test",
                 },
             )
             assert created["stageId"] == "intake"

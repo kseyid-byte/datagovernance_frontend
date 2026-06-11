@@ -295,7 +295,10 @@ function filteredProducts() {
 function matchesColumnFilters(product) {
   return Object.entries(tableFilters).every(([column, filter]) => {
     if (!filter) return true;
-    const value = column === "daysInStage" ? String(product.daysInStage ?? "") : String(product[column] ?? "");
+    const value =
+      column === "daysInStage"
+        ? `${product.daysInStage ?? ""} ${formatDaysInStage(product.daysInStage)}`
+        : String(product[column] ?? "");
     return value.toLowerCase().includes(filter);
   });
 }
@@ -407,12 +410,19 @@ function renderTable() {
       <td>${escapeHtml(product.type)}</td>
       <td>${escapeHtml(product.platform)}</td>
       <td>${escapeHtml(product.stage)}</td>
-      <td><strong>${escapeHtml(product.daysInStage ?? 0)}</strong><br><small>${escapeHtml(product.currentStageEnteredAt || "")}</small></td>
+      <td><strong>${escapeHtml(formatDaysInStage(product.daysInStage))}</strong><br><small>${escapeHtml(product.currentStageEnteredAt || "")}</small></td>
       <td><span class="status ${statusClass(product.status)}">${escapeHtml(product.status)}</span></td>
       <td>${escapeHtml(product.owner)}</td>
     `;
     rows.appendChild(row);
   });
+}
+
+function formatDaysInStage(days) {
+  const numericDays = Number(days);
+  if (!Number.isFinite(numericDays)) return "Not set";
+  if (numericDays <= 0) return "<1 day";
+  return numericDays === 1 ? "1 day" : `${numericDays} days`;
 }
 
 async function openProductWorkflow(requestId) {
@@ -1024,14 +1034,9 @@ async function handleSubmit(event) {
     businessUnit: form.get("businessUnit"),
     initiative: form.get("initiative"),
     description: form.get("description"),
-    productType: form.get("productType"),
-    platform: form.get("platform"),
-    priority: form.get("priority"),
-    scope: form.get("scope"),
     requester: form.get("requester"),
     requesterEmail: form.get("requesterEmail"),
     expectedDate: form.get("expectedDate"),
-    additionalComments: form.get("additionalComments"),
   };
 
   try {
