@@ -19,6 +19,7 @@ APP_BACKEND = os.getenv("GOVERNANCE_BACKEND", "sqlite").strip().lower()
 DB_PATH = Path(os.getenv("GOVERNANCE_SQLITE_PATH", ROOT / "governance_tool.sqlite"))
 GOVERNANCE_CATALOG = os.getenv("GOVERNANCE_CATALOG", "").strip()
 GOVERNANCE_SCHEMA = os.getenv("GOVERNANCE_SCHEMA", "").strip()
+LAKEBASE_SCHEMA = os.getenv("GOVERNANCE_LAKEBASE_SCHEMA", "public").strip() or "public"
 IDENTITY_DEBUG = os.getenv("GOVERNANCE_IDENTITY_DEBUG", "").strip().lower() in {"1", "true", "yes"}
 ALLOW_IDENTITY_FALLBACK = os.getenv("GOVERNANCE_ALLOW_IDENTITY_FALLBACK", "").strip().lower() in {"1", "true", "yes"}
 SEED_DEMO_DATA = os.getenv("GOVERNANCE_SEED_DEMO_DATA", "true").strip().lower() in {"1", "true", "yes"}
@@ -105,6 +106,27 @@ MASTER_DATA_CONFIG = {
         "name": "display_name",
         "fields": [("name", "display_name"), ("email", "email"), ("roleKey", "role_key")],
     },
+}
+
+PRIMARY_KEY_COLUMNS = {
+    config["table"]: config["id"] for config in MASTER_DATA_CONFIG.values()
+}
+PRIMARY_KEY_COLUMNS.update(
+    {
+        "md_stages": "stage_id",
+        "md_stage_requirements": "requirement_id",
+        "data_product_requests_new": "request_id",
+        "request_stage_answers": "answer_id",
+        "request_timeline": "timeline_id",
+    }
+)
+
+CAMEL_CASE_KEYS = {
+    "stageid": "stageId",
+    "statusid": "statusId",
+    "domainid": "domainId",
+    "domainname": "domainName",
+    "parentid": "parentId",
 }
 
 STAGES = [
@@ -279,19 +301,83 @@ class DatabricksConnection:
         self.connection.close()
 
 
+class LakebaseConnection:
+    backend = "lakebase"
+
+    def __init__(self):
+        try:
+            import psycopg
+            from psycopg.rows import dict_row
+        except ImportError as exc:
+            raise RuntimeError(
+                "psycopg[binary] is required when GOVERNANCE_BACKEND=lakebase"
+            ) from exc
+
+        conninfo = os.getenv("GOVERNANCE_LAKEBASE_DSN", "").strip() or os.getenv("DATABASE_URL", "").strip()
+        connect_kwargs = {"row_factory": dict_row}
+        if not conninfo and not os.getenv("PGHOST", "").strip():
+            raise RuntimeError(
+                "Lakebase connection settings were not found. Add the Lakebase database resource "
+                "to the Databricks App so PGHOST, PGPORT, PGDATABASE, PGUSER, and PGSSLMODE are set."
+            )
+        if "sslmode=" not in conninfo and not os.getenv("PGSSLMODE", "").strip():
+            connect_kwargs["sslmode"] = "require"
+
+        self.connection = psycopg.connect(conninfo, **connect_kwargs)
+        self.execute(f"SET search_path TO {quote_postgres_identifier(LAKEBASE_SCHEMA)}")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        self.close()
+
+    def execute(self, statement: str, params: tuple | list | None = None):
+        cursor = self.connection.cursor()
+        cursor.execute(postgres_statement(statement), tuple(params or ()))
+        return cursor
+
+    def executemany(self, statement: str, rows: list[tuple]):
+        cursor = self.connection.cursor()
+        cursor.executemany(postgres_statement(statement), rows)
+        return cursor
+
+    def commit(self) -> None:
+        self.connection.commit()
+
+    def close(self) -> None:
+        self.connection.close()
+
+
 def quote_identifier(value: str) -> str:
     if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", value):
         raise ValueError(f"Invalid Databricks identifier: {value}")
     return f"`{value}`"
 
 
+def quote_postgres_identifier(value: str) -> str:
+    if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", value):
+        raise ValueError(f"Invalid PostgreSQL identifier: {value}")
+    return f'"{value}"'
+
+
+def postgres_statement(statement: str) -> str:
+    return statement.replace("?", "%s")
+
+
 def is_databricks_db(db) -> bool:
     return getattr(db, "backend", "") == "databricks_sql"
 
 
-def connect() -> sqlite3.Connection | DatabricksConnection:
+def is_lakebase_db(db) -> bool:
+    return getattr(db, "backend", "") == "lakebase"
+
+
+def connect() -> sqlite3.Connection | DatabricksConnection | LakebaseConnection:
     if APP_BACKEND == "databricks_sql":
         return DatabricksConnection()
+    if APP_BACKEND == "lakebase":
+        return LakebaseConnection()
     if APP_BACKEND != "sqlite":
         raise RuntimeError(f"Unsupported GOVERNANCE_BACKEND: {APP_BACKEND}")
     connection = sqlite3.connect(DB_PATH)
@@ -301,8 +387,10 @@ def connect() -> sqlite3.Connection | DatabricksConnection:
 
 def row_to_dict(row) -> dict:
     if hasattr(row, "asDict"):
-        return row.asDict()
-    return dict(row)
+        data = row.asDict()
+    else:
+        data = dict(row)
+    return {CAMEL_CASE_KEYS.get(key, key): value for key, value in data.items()}
 
 
 def dict_rows(rows: list) -> list[dict]:
@@ -310,6 +398,17 @@ def dict_rows(rows: list) -> list[dict]:
 
 
 def init_db() -> None:
+    if APP_BACKEND == "lakebase":
+        with connect() as db:
+            create_lakebase_schema(db)
+            seed_master_data(db)
+            seed_stage_requirements(db)
+            if SEED_DEMO_DATA:
+                seed_requests(db)
+                backfill_demo_stage_answers(db)
+                seed_missing_timelines(db)
+            db.commit()
+        return
     if APP_BACKEND != "sqlite":
         return
     with connect() as db:
@@ -324,6 +423,18 @@ def init_db() -> None:
             backfill_demo_stage_answers(db)
             seed_missing_timelines(db)
         db.commit()
+
+
+def create_lakebase_schema(db: LakebaseConnection) -> None:
+    db.execute(f"CREATE SCHEMA IF NOT EXISTS {quote_postgres_identifier(LAKEBASE_SCHEMA)}")
+    db.execute(f"SET search_path TO {quote_postgres_identifier(LAKEBASE_SCHEMA)}")
+    script_path = ROOT / "sql" / "lakebase_schema.sql"
+    for statement in split_sql_script(script_path.read_text(encoding="utf-8")):
+        db.execute(statement)
+
+
+def split_sql_script(script: str) -> list[str]:
+    return [statement.strip() for statement in script.split(";") if statement.strip()]
 
 
 def create_master_tables(db: sqlite3.Connection) -> None:
@@ -578,8 +689,7 @@ def create_workflow_tables(db: sqlite3.Connection) -> None:
 
 
 def seed_master_data(db: sqlite3.Connection) -> None:
-    db.execute("INSERT OR IGNORE INTO md_domains VALUES ('commercial', 'Commercial')")
-    db.execute("INSERT OR IGNORE INTO md_domains VALUES ('dummy_domain', 'Dummy Domain')")
+    insert_missing(db, "md_domains", [("commercial", "Commercial"), ("dummy_domain", "Dummy Domain")])
     insert_missing(db, "md_business_units", [("cp", "CP"), ("seeds", "Seeds"), ("vegetables", "Vegetables")])
     insert_missing(db, "md_product_types", [("structured", "Structured"), ("unstructured", "Unstructured"), ("mixed", "Mixed")])
     insert_missing(db, "md_platforms", [("databricks", "Databricks"), ("lynx", "Lynx"), ("both", "Both")])
@@ -656,7 +766,21 @@ def seed_master_data(db: sqlite3.Connection) -> None:
 
 
 def insert_missing(db: sqlite3.Connection, table: str, rows: list[tuple]) -> None:
+    if not rows:
+        return
     placeholders = ", ".join(["?"] * len(rows[0]))
+    if is_lakebase_db(db):
+        db.executemany(f"INSERT INTO {table} VALUES ({placeholders}) ON CONFLICT DO NOTHING", rows)
+        return
+    if is_databricks_db(db):
+        key_column = PRIMARY_KEY_COLUMNS.get(table)
+        if not key_column:
+            raise ValueError(f"Primary key column is not configured for {table}")
+        for row in rows:
+            exists = db.execute(f"SELECT 1 FROM {table} WHERE {key_column} = ?", (row[0],)).fetchone()
+            if not exists:
+                db.execute(f"INSERT INTO {table} VALUES ({placeholders})", row)
+        return
     db.executemany(f"INSERT OR IGNORE INTO {table} VALUES ({placeholders})", rows)
 
 
@@ -741,15 +865,24 @@ def seed_stage_requirements(db: sqlite3.Connection) -> None:
           )
         """
     )
-    db.execute(
-        """
-        UPDATE request_stage_answers
-        SET answer_value = '10'
-        WHERE requirement_id = 'reuse_domain_effort'
-          AND answer_value GLOB '*[^0-9]*'
-        """
-    )
-    db.execute("UPDATE data_product_requests_new SET effort = NULL WHERE effort GLOB '*[^0-9]*'")
+    if is_lakebase_db(db):
+        db.execute(
+            """
+            UPDATE request_stage_answers
+            SET answer_value = '10'
+            WHERE requirement_id = 'reuse_domain_effort'
+              AND answer_value !~ '^[0-9]+$'
+            """
+        )
+    elif not is_databricks_db(db):
+        db.execute(
+            """
+            UPDATE request_stage_answers
+            SET answer_value = '10'
+            WHERE requirement_id = 'reuse_domain_effort'
+              AND answer_value GLOB '*[^0-9]*'
+            """
+        )
 
 
 def seed_requests(db: sqlite3.Connection) -> None:
@@ -1893,11 +2026,12 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
         query = parse_qs(parsed.query)
         try:
             if path == "/api/health":
-                database = (
-                    f"{GOVERNANCE_CATALOG}.{GOVERNANCE_SCHEMA}"
-                    if APP_BACKEND == "databricks_sql"
-                    else str(DB_PATH)
-                )
+                if APP_BACKEND == "databricks_sql":
+                    database = f"{GOVERNANCE_CATALOG}.{GOVERNANCE_SCHEMA}"
+                elif APP_BACKEND == "lakebase":
+                    database = f"{os.getenv('PGDATABASE', 'unknown')}/{LAKEBASE_SCHEMA}"
+                else:
+                    database = str(DB_PATH)
                 self.send_json({"ok": True, "backend": APP_BACKEND, "database": database})
                 return
             if path == "/api/session":
@@ -2056,6 +2190,8 @@ def main() -> None:
         print(f"SQLite database: {DB_PATH}", flush=True)
     elif APP_BACKEND == "databricks_sql":
         print(f"Databricks schema: {GOVERNANCE_CATALOG}.{GOVERNANCE_SCHEMA}", flush=True)
+    elif APP_BACKEND == "lakebase":
+        print(f"Lakebase database: {os.getenv('PGDATABASE', 'unknown')}/{LAKEBASE_SCHEMA}", flush=True)
     server.serve_forever()
 
 

@@ -5,10 +5,15 @@ command:
 
 env:
   - name: GOVERNANCE_BACKEND
-    value: databricks_sql
-  - name: GOVERNANCE_CATALOG
-    value: venus_forge_dev
-  - name: GOVERNANCE_SCHEMA
-    value: app_control_tables
-  - name: DATABRICKS_WAREHOUSE_ID
-    valueFrom: sql-warehouse
+    value: lakebase
+  - name: GOVERNANCE_LAKEBASE_SCHEMA
+    value: public
+  - name: GOVERNANCE_SEED_DEMO_DATA
+    value: "false"
+
+resources:
+  - name: governance-lakebase
+    database:
+      databaseName: governance_app_dev
+      instanceName: governance-lakebase-dev
+      permission: CAN_CONNECT_AND_CREATE

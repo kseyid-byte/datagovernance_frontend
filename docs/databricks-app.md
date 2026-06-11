@@ -1,19 +1,102 @@
 # Databricks App Readiness
 
-This repository is ready to deploy as a Databricks App backed by Databricks SQL.
+This branch is configured to run as a Databricks App backed by Lakebase/PostgreSQL.
 
 ## Runtime files
 
-- `app.yaml` defines the Databricks App command.
+- `app.yaml` defines the Databricks App command and Lakebase backend mode.
 - `app.py` is the stable Python entrypoint.
-- `requirements.txt` includes the Databricks SQL connector and SDK.
+- `requirements.txt` includes `psycopg[binary]` for Lakebase/PostgreSQL, plus the existing Databricks libraries.
 - `server.py` reads `DATABRICKS_APP_PORT`, so Databricks can assign the runtime port.
+- `sql/lakebase_schema.sql` is applied automatically on startup when `GOVERNANCE_BACKEND=lakebase`.
 
 Databricks Apps requires `app.yaml` at the repository root when a custom command or environment values are needed. The command starts `python app.py $DATABRICKS_APP_PORT`; `server.py` also falls back to the `DATABRICKS_APP_PORT` runtime environment variable if the command argument is not numeric.
 
 ## Current backend mode
 
-The committed `app.yaml` uses:
+The Lakebase branch uses:
+
+```yaml
+GOVERNANCE_BACKEND: lakebase
+GOVERNANCE_LAKEBASE_SCHEMA: public
+GOVERNANCE_SEED_DEMO_DATA: "false"
+```
+
+The expected Lakebase app resource is:
+
+```yaml
+resources:
+  - name: governance-lakebase
+    database:
+      databaseName: governance_app_dev
+      instanceName: governance-lakebase-dev
+      permission: CAN_CONNECT_AND_CREATE
+```
+
+For local testing, keep using SQLite by running:
+
+```bash
+GOVERNANCE_BACKEND=sqlite DATABRICKS_APP_PORT=8502 python3 app.py
+```
+
+## Lakebase UI setup
+
+1. Open the Databricks workspace.
+2. Open the Lakebase app from the apps switcher.
+3. Create or select the Lakebase database setup using these names:
+   - Instance/project: `governance-lakebase-dev`
+   - Database: `governance_app_dev`
+4. Open the Databricks App configuration.
+5. Add a resource:
+   - Type: Database / Lakebase
+   - Resource key: `governance-lakebase`
+   - Permission: `Can connect and create`
+6. Deploy from Git:
+   - Repository: `https://github.com/kseyid-byte/datagovernance_frontend`
+   - Branch: `codex/lakebase-backend`
+   - Source path: repository root
+
+When the database resource is attached, Databricks injects standard PostgreSQL environment variables for the first database resource, including `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, and `PGSSLMODE`. The app uses those values through `psycopg`.
+
+## Startup behavior
+
+On startup in Lakebase mode, the app:
+
+1. Connects to Lakebase using the Databricks-provided PostgreSQL environment variables.
+2. Creates the configured PostgreSQL schema if needed.
+3. Creates all app tables from `sql/lakebase_schema.sql` if they do not exist.
+4. Seeds master data and workflow stage requirements.
+5. Does not seed demo product requests because `GOVERNANCE_SEED_DEMO_DATA=false` in `app.yaml`.
+
+## Validation
+
+After deployment, open:
+
+```text
+/api/health
+```
+
+Expected response shape:
+
+```json
+{
+  "ok": true,
+  "backend": "lakebase",
+  "database": "governance_app_dev/public"
+}
+```
+
+Then validate through the UI:
+
+1. Create a request as a normal Syngenta user.
+2. Confirm it appears on the overview table immediately.
+3. Sign in as an admin email stored in `md_users`.
+4. Open the admin workflow and save a stage.
+5. Confirm the stage, dashboard counts, and timeline update without waiting on a SQL warehouse.
+
+## Existing Databricks SQL mode
+
+The Databricks SQL backend is still available in `server.py` for fallback or comparison testing, but this branch no longer uses it by default. To use it, set:
 
 ```yaml
 GOVERNANCE_BACKEND: databricks_sql
@@ -23,48 +106,4 @@ DATABRICKS_WAREHOUSE_ID:
   valueFrom: sql-warehouse
 ```
 
-This stores requests, workflow answers, master data, and timeline events in Unity Catalog Delta tables.
-
-For local testing, keep using SQLite by running:
-
-```bash
-GOVERNANCE_BACKEND=sqlite DATABRICKS_APP_PORT=8502 python3 app.py
-```
-
-## Databricks SQL setup
-
-Before deploying the SQL-backed app:
-
-1. Run `sql/databricks_schema.sql` after replacing `${catalog}.${schema}` with `venus_forge_dev.app_control_tables`.
-2. Run `sql/seed_master_data.sql` with the same replacement.
-3. Add a Databricks App SQL warehouse resource using the default resource key `sql-warehouse`.
-4. Grant the app service principal `USE CATALOG`, `USE SCHEMA`, and table read/write permissions on `venus_forge_dev.app_control_tables`.
-
-The app trusts Databricks-provided identity headers for user/session resolution. Do not rely on browser-sent identity headers for admin authorization.
-
-Use a Databricks App resource for the SQL warehouse instead of hardcoding sensitive or environment-specific values.
-
-## Deploy from Git
-
-1. Create a custom Databricks App.
-2. Configure Git source:
-   - Repository: `https://github.com/kseyid-byte/datagovernance_frontend`
-   - Branch: `main`
-   - Source path: repository root
-3. Deploy.
-
-## Deploy from CLI
-
-```bash
-databricks sync --watch . /Workspace/Users/<you>/datagovernance_frontend
-databricks apps deploy <app-name> \
-  --source-code-path /Workspace/Users/<you>/datagovernance_frontend
-```
-
-## What you need from Databricks today
-
-- Permission to create/manage Databricks Apps.
-- Access to the GitHub repo from Databricks, or a workspace folder deploy.
-- A SQL warehouse for the future durable backend.
-- A Unity Catalog catalog and schema name for the governance tables.
-- App service principal permissions on the source folder, SQL warehouse, and Unity Catalog tables.
+For that mode, use `sql/databricks_schema.sql` and `sql/seed_master_data.sql`.

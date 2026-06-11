@@ -13,7 +13,7 @@ The current scope is intentionally focused:
 - Timeline capture for request creation, stage saves, status changes, and automatic movement
 - Role-based access using Databricks identity headers: all authenticated Syngenta users can create requests; configured admins see workflow and master-data maintenance.
 - Admin master-data maintenance for adding/removing lookup values.
-- Databricks SQL persistence with SQLite available for local backup testing.
+- Lakebase/PostgreSQL persistence for Databricks Apps, with SQLite available for local backup testing.
 
 There is no Streamlit dependency. The UI is plain HTML, CSS, and JavaScript so the layout is fully controlled. A small Python backend is included for local API testing.
 
@@ -33,12 +33,13 @@ Local browser sessions still need a Databricks-style identity header to load `/a
 - `styles.css` - layout and visual design
 - `app.js` - dashboard state, request creation, filtering, and API calls
 - `app.py` - Databricks App entrypoint
-- `app.yaml` - Databricks App runtime command and SQL environment
-- `server.py` - static server plus SQLite/Databricks SQL API
+- `app.yaml` - Databricks App runtime command and Lakebase environment
+- `server.py` - static server plus SQLite/Databricks SQL/Lakebase API
 - `requirements.txt` - Python dependency manifest for Databricks Apps
 - `governance_tool.sqlite` - local database created automatically when the server starts
 - `schema.sql` - clean schema matching the current local app data model
 - `sql/databricks_schema.sql` - Unity Catalog / Delta table DDL template
+- `sql/lakebase_schema.sql` - Lakebase / PostgreSQL table DDL used by the app at startup
 - `sql/seed_master_data.sql` - Databricks SQL seed data for master data and stage requirements
 - `docs/databricks-app.md` - Databricks deployment checklist and backend switch notes
 - `tests/smoke_test.py` - local smoke coverage for identity, request creation, workflow movement, and validation
@@ -47,20 +48,21 @@ Local browser sessions still need a Databricks-style identity header to load `/a
 
 The repository can be used as a custom Databricks App source today.
 
-Current `app.yaml` runs the app with the Databricks SQL backend:
+The `codex/lakebase-backend` branch runs the app with the Lakebase backend:
 
-- Catalog: `venus_forge_dev`
-- Schema: `app_control_tables`
-- SQL warehouse resource key: `sql-warehouse`
+- Lakebase instance: `governance-lakebase-dev`
+- Lakebase database: `governance_app_dev`
+- App database resource key: `governance-lakebase`
+- PostgreSQL schema: `public`
 
 To deploy from Git:
 
 1. Create a custom Databricks App.
 2. Use Git source `https://github.com/kseyid-byte/datagovernance_frontend`.
-3. Use branch `main` and source path `/`.
+3. Use branch `codex/lakebase-backend` and source path `/`.
 4. Deploy.
 
-For the durable backend, create the Unity Catalog schema, run `sql/databricks_schema.sql`, run `sql/seed_master_data.sql`, and grant the app service principal read/write access to the tables.
+For Lakebase, add the database resource to the app with `Can connect and create`. The app creates the required tables from `sql/lakebase_schema.sql` and seeds master data/stage requirements at startup.
 
 See `docs/databricks-app.md` for the exact checklist.
 
