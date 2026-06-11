@@ -344,7 +344,10 @@ class LakebaseConnection:
 
     def execute(self, statement: str, params: tuple | list | None = None):
         cursor = self.connection.cursor()
-        cursor.execute(postgres_statement(statement), tuple(params or ()))
+        if params:
+            cursor.execute(postgres_statement(statement), tuple(params))
+        else:
+            cursor.execute(statement)
         return cursor
 
     def executemany(self, statement: str, rows: list[tuple]):
@@ -372,7 +375,7 @@ def quote_postgres_identifier(value: str) -> str:
 
 
 def postgres_statement(statement: str) -> str:
-    return statement.replace("?", "%s")
+    return statement.replace("%", "%%").replace("?", "%s")
 
 
 def lakebase_password() -> str:
