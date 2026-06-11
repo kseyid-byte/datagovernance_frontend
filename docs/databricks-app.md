@@ -20,8 +20,8 @@ The Lakebase branch uses:
 GOVERNANCE_BACKEND: lakebase
 GOVERNANCE_LAKEBASE_SCHEMA: governance_app
 GOVERNANCE_SEED_DEMO_DATA: "false"
-GOVERNANCE_IMPORT_UC_SYNCED_DATA: "true"
-GOVERNANCE_UC_IMPORT_REPLACE: "true"
+GOVERNANCE_IMPORT_UC_SYNCED_DATA: "false"
+GOVERNANCE_UC_IMPORT_REPLACE: "false"
 GOVERNANCE_UC_SYNC_SCHEMA: app_product_details,app_control_tables
 GOVERNANCE_UC_SYNC_REQUESTS_TABLE: data_product_requests_new_synced
 GOVERNANCE_ADMIN_EMAILS: kerem.seyid@syngenta.com,harish.krishnamoorthy@syngenta.com
@@ -64,8 +64,8 @@ On startup in Lakebase mode, the app:
 2. Creates the configured PostgreSQL schema if needed.
 3. Creates all app tables from `sql/lakebase_schema.sql` if they do not exist.
 4. Seeds master data and workflow stage requirements.
-5. Imports product request records from the Lakebase synced copy of the Unity Catalog table when that synced table exists.
-6. Removes Lakebase request rows that are not in the synced UC table, because `GOVERNANCE_UC_IMPORT_REPLACE=true`.
+5. Keeps existing Lakebase operational request rows in place across deploys.
+6. Does not re-import UC records unless `GOVERNANCE_IMPORT_UC_SYNCED_DATA=true` is explicitly enabled for a controlled migration.
 
 ## Validation
 
@@ -97,9 +97,9 @@ Expected response shape:
 }
 ```
 
-For Unity Catalog data to appear in the app, create a Lakebase synced table from the UC request table. Databricks exposes synced tables in Postgres by inheriting the UC schema name and adding `_synced` to the table name. For example, `venus_forge_dev.app_product_details.data_product_requests_new` becomes `app_product_details.data_product_requests_new_synced` in Lakebase. If `/api/health` shows `ucImport.status = "skipped"`, check `ucImport.candidates`; the app now lists matching Lakebase tables it can see. With replace mode enabled, existing demo/request rows not present in the synced UC source are removed from the Lakebase app table on startup.
+UC import is now disabled for normal operation so redeploys do not overwrite Lakebase workflow changes. For a controlled one-time migration, enable `GOVERNANCE_IMPORT_UC_SYNCED_DATA=true`. Keep `GOVERNANCE_UC_IMPORT_REPLACE=false` unless you deliberately want Lakebase rows not present in UC to be removed.
 
-Opening `/api/health` also forces a UC import refresh, so you can create the synced table first and then refresh health without waiting for a full app restart.
+When UC import is explicitly enabled, opening `/api/health` forces a UC import refresh, so you can create the synced table first and then refresh health without waiting for a full app restart.
 
 Then validate through the UI:
 

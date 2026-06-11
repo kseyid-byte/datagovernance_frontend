@@ -11,9 +11,9 @@ env:
   - name: GOVERNANCE_SEED_DEMO_DATA
     value: "false"
   - name: GOVERNANCE_IMPORT_UC_SYNCED_DATA
-    value: "true"
+    value: "false"
   - name: GOVERNANCE_UC_IMPORT_REPLACE
-    value: "true"
+    value: "false"
   - name: GOVERNANCE_UC_SYNC_SCHEMA
     value: app_product_details,app_control_tables
   - name: GOVERNANCE_UC_SYNC_REQUESTS_TABLE
