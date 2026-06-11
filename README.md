@@ -53,7 +53,7 @@ The `codex/lakebase-backend` branch runs the app with the Lakebase backend:
 - Lakebase instance: `governance-lakebase-dev`
 - Lakebase database: `governance_app_dev`
 - App database resource key: `governance-lakebase`
-- PostgreSQL schema: `public`
+- PostgreSQL schema: `governance_app`
 
 To deploy from Git:
 

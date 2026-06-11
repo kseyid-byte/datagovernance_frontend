@@ -7,7 +7,7 @@ env:
   - name: GOVERNANCE_BACKEND
     value: lakebase
   - name: GOVERNANCE_LAKEBASE_SCHEMA
-    value: public
+    value: governance_app
   - name: GOVERNANCE_SEED_DEMO_DATA
     value: "false"
   - name: DATABRICKS_POSTGRES_ENDPOINT

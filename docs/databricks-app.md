@@ -18,7 +18,7 @@ The Lakebase branch uses:
 
 ```yaml
 GOVERNANCE_BACKEND: lakebase
-GOVERNANCE_LAKEBASE_SCHEMA: public
+GOVERNANCE_LAKEBASE_SCHEMA: governance_app
 GOVERNANCE_SEED_DEMO_DATA: "false"
 DATABRICKS_POSTGRES_ENDPOINT:
   valueFrom: governance-lakebase
@@ -75,7 +75,7 @@ Expected response shape:
 {
   "ok": true,
   "backend": "lakebase",
-  "database": "governance_app_dev/public"
+  "database": "governance_app_dev/governance_app"
 }
 ```
 
