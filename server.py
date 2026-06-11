@@ -485,6 +485,7 @@ def init_db() -> None:
             create_lakebase_schema(db)
             seed_master_data(db)
             seed_stage_requirements(db)
+            ensure_master_data_ready(db)
             if SEED_DEMO_DATA:
                 seed_requests(db)
                 backfill_demo_stage_answers(db)
@@ -1338,6 +1339,8 @@ def get_cached_master_data(db: sqlite3.Connection) -> dict:
     now_monotonic = time.monotonic()
     if MASTER_DATA_CACHE["data"] is not None and MASTER_DATA_CACHE["expires_at"] > now_monotonic:
         return MASTER_DATA_CACHE["data"]
+    if is_lakebase_db(db):
+        ensure_master_data_ready(db)
     data = get_master_data(db)
     MASTER_DATA_CACHE["data"] = data
     MASTER_DATA_CACHE["expires_at"] = now_monotonic + MASTER_DATA_CACHE_SECONDS
@@ -1347,6 +1350,62 @@ def get_cached_master_data(db: sqlite3.Connection) -> dict:
 def clear_master_data_cache() -> None:
     MASTER_DATA_CACHE["data"] = None
     MASTER_DATA_CACHE["expires_at"] = 0.0
+
+
+def master_data_counts(db: sqlite3.Connection) -> dict:
+    tables = {
+        "domains": "md_domains",
+        "businessUnits": "md_business_units",
+        "productTypes": "md_product_types",
+        "platforms": "md_platforms",
+        "priorities": "md_priorities",
+        "stages": "md_stages",
+        "statuses": "md_statuses",
+        "subdomains": "md_subdomains",
+        "users": "md_users",
+        "sourceSystems": "md_source_systems",
+        "scopeOptions": "md_scope_options",
+        "buildStatuses": "md_build_statuses",
+        "stageRequirements": "md_stage_requirements",
+        "requests": "data_product_requests_new",
+    }
+    counts = {}
+    for key, table in tables.items():
+        row = db.execute(f"SELECT COUNT(*) AS count FROM {table}").fetchone()
+        counts[key] = int(row["count"] or 0)
+    return counts
+
+
+def ensure_master_data_ready(db: sqlite3.Connection) -> dict:
+    counts = master_data_counts(db)
+    required_keys = [
+        "domains",
+        "businessUnits",
+        "productTypes",
+        "platforms",
+        "priorities",
+        "stages",
+        "statuses",
+        "subdomains",
+        "users",
+        "sourceSystems",
+        "scopeOptions",
+        "buildStatuses",
+        "stageRequirements",
+    ]
+    if all(counts.get(key, 0) > 0 for key in required_keys):
+        return counts
+
+    seed_master_data(db)
+    seed_stage_requirements(db)
+    db.commit()
+    clear_master_data_cache()
+
+    counts = master_data_counts(db)
+    missing = [key for key in required_keys if counts.get(key, 0) == 0]
+    if missing:
+        raise RuntimeError(f"Master data seed did not populate: {', '.join(missing)}")
+    return counts
 
 
 def upsert_master_data_item(db: sqlite3.Connection, collection: str, payload: dict) -> dict:
@@ -2127,6 +2186,13 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
                 payload = {"ok": STARTUP_ERROR is None, "backend": APP_BACKEND, "database": database_label()}
                 if STARTUP_ERROR:
                     payload["startupError"] = STARTUP_ERROR
+                else:
+                    try:
+                        with connect() as db:
+                            payload["counts"] = ensure_master_data_ready(db) if is_lakebase_db(db) else master_data_counts(db)
+                    except Exception as exc:
+                        payload["ok"] = False
+                        payload["healthError"] = f"{type(exc).__name__}: {exc}"
                 self.send_json(payload)
                 return
             if STARTUP_ERROR:
@@ -2136,6 +2202,8 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
                 log_identity_headers(self.headers)
                 email, identity_source = resolve_user_email(self.headers, query.get("email", [""])[0])
                 with connect() as db:
+                    if is_lakebase_db(db):
+                        ensure_master_data_ready(db)
                     session = get_session(db, email)
                     session["identitySource"] = identity_source
                     self.send_json(session)

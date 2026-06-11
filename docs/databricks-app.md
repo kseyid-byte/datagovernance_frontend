@@ -75,9 +75,17 @@ Expected response shape:
 {
   "ok": true,
   "backend": "lakebase",
-  "database": "governance_app_dev/governance_app"
+  "database": "governance_app_dev/governance_app",
+  "counts": {
+    "domains": 2,
+    "stages": 8,
+    "sourceSystems": 5,
+    "stageRequirements": 30
+  }
 }
 ```
+
+The request count can be `0` on a fresh Lakebase database because demo product request seeding is disabled for deployment. Master data counts should not be `0`.
 
 Then validate through the UI:
 
