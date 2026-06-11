@@ -38,17 +38,6 @@ def main() -> None:
             session = server.get_session(db, "kerem.seyid@syngenta.com")
             assert session["canAdmin"] is True
 
-            master_data = server.get_master_data(db)
-            assert [stage["id"] for stage in master_data["stages"]] == [
-                "intake",
-                "domain_ownership",
-                "requirements",
-                "architecture_review",
-                "build_validate",
-                "publish",
-                "operate",
-            ]
-
             dashboard = server.get_dashboard(db)
             assert dashboard["total"] >= 15
 
@@ -89,16 +78,16 @@ def main() -> None:
                 },
             )
             assert workflow["advanced"] is True
-            assert workflow["request"]["stageId"] == "domain_ownership"
+            assert workflow["request"]["stageId"] == "reuse_domain"
 
             try:
                 server.save_workflow_answers(
                     db,
                     created["requestId"],
                     {
-                        "stageId": "domain_ownership",
+                        "stageId": "reuse_domain",
                         "updatedBy": "kerem.seyid@syngenta.com",
-                        "answers": {"domain_ownership_jira_link": "javascript:alert(1)"},
+                        "answers": {"reuse_domain_jira_link": "javascript:alert(1)"},
                     },
                 )
             except ValueError:

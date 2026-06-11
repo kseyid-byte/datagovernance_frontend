@@ -26,8 +26,9 @@ const loadingClearTimers = {};
 const minimumLoadingMs = 450;
 const tableFilters = {};
 const stageDescriptions = {
-  intake: "Capture request, requester, and expected date.",
-  domain_ownership: "Check reuse, assign domain ownership, source, delivery lead, and Lynx PM.",
+  intake: "Capture request, requester, priority, scope, and expected date.",
+  reuse_domain: "Check reuse and assign the accountable lead subdomain.",
+  ownership: "Assign owner, source system, delivery lead, and Lynx PM.",
   requirements: "Confirm KPIs, definitions, grain, sources, CDEs, and DQ rules.",
   architecture_review: "Confirm design, security, and tooling are approved.",
   build_validate: "Track build status, testing, UAT, and validation evidence.",

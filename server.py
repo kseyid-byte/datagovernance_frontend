@@ -144,12 +144,13 @@ CAMEL_CASE_KEYS = {
 
 STAGES = [
     ("intake", "Intake", 1),
-    ("domain_ownership", "Domain Ownership", 2),
-    ("requirements", "Requirements", 3),
-    ("architecture_review", "Architecture Review", 4),
-    ("build_validate", "Build / Validate", 5),
-    ("publish", "Publish", 6),
-    ("operate", "Operate", 7),
+    ("reuse_domain", "Reuse / Domain", 2),
+    ("ownership", "Ownership", 3),
+    ("requirements", "Requirements", 4),
+    ("architecture_review", "Architecture Review", 5),
+    ("build_validate", "Build / Validate", 6),
+    ("publish", "Publish", 7),
+    ("operate", "Operate", 8),
 ]
 
 STAGE_REQUIREMENTS = {
@@ -162,7 +163,7 @@ STAGE_REQUIREMENTS = {
         ("expected_date", "Expected date", "date", None, "When is this product expected?"),
         ("additional_comments", "Additional comments", "textarea", None, "Any extra context for triage."),
     ],
-    "domain_ownership": [
+    "reuse_domain": [
         ("lead_domain_id", "Lead domain", "select", "domains", "Select the accountable data domain."),
         ("lead_subdomain_id", "Lead subdomain", "select", "subdomains", "Assign the accountable subdomain for the selected domain."),
         ("delivery_date", "Delivery date", "date", None, "Set the planned delivery date."),
@@ -171,6 +172,8 @@ STAGE_REQUIREMENTS = {
         ("jira_epic_id", "Jira epic ID", "text", None, "Add the Jira epic or delivery tracking ID."),
         ("jira_link", "Jira link", "text", None, "Add the Jira epic or story link."),
         ("reuse_checked", "Existing product reuse checked", "checkbox", None, "Confirm existing data products were checked first."),
+    ],
+    "ownership": [
         ("data_domain_owner_user_id", "Data Domain Owner", "select", "dataDomainOwners", "Select from master data."),
         ("source_system_id", "Source System", "select", "sourceSystems", "Select the approved source system."),
         ("domain_delivery_lead_user_id", "Domain Delivery Lead", "select", "domainDeliveryLeads", "Select from master data."),
@@ -206,15 +209,15 @@ STAGE_REQUIREMENTS = {
 SEED_PRODUCTS = [
     ("00000001", "Revenue KPI rebuild", "structured", "databricks", "architecture_review", "blocked", "Waiting on approved source and DQ rules"),
     ("00000002", "Policy document search", "unstructured", "lynx", "build_validate", "in_progress", "Lynx content traceability under review"),
-    ("00000003", "Customer 360 dataset", "mixed", "both", "domain_ownership", "in_review", "Need named owner and source system"),
+    ("00000003", "Customer 360 dataset", "mixed", "both", "ownership", "in_review", "Need named owner and source system"),
     ("00000004", "Marketing dashboard v2", "structured", "databricks", "operate", "operating", "Monthly review completed"),
     ("00000005", "Supplier knowledge base", "unstructured", "lynx", "requirements", "in_review", "Missing CDE and quality rules"),
     ("00000006", "Returns analytics layer", "structured", "databricks", "publish", "ready", "Awaiting Alation documentation"),
-    ("00000007", "Pricing conditions master", "structured", "databricks", "domain_ownership", "in_review", "Domain assignment pending triage"),
+    ("00000007", "Pricing conditions master", "structured", "databricks", "reuse_domain", "in_review", "Domain assignment pending triage"),
     ("00000008", "Field trial outcomes report", "structured", "databricks", "requirements", "blocked", "Source system not yet confirmed"),
     ("00000009", "Grower loyalty index", "mixed", "both", "build_validate", "in_progress", "UAT in progress with commercial team"),
     ("00000010", "Digital agronomy event log", "unstructured", "lynx", "intake", "not_started", "New request submitted for triage"),
-    ("00000011", "Seeds volume forecast", "structured", "databricks", "domain_ownership", "in_review", "Awaiting domain delivery lead assignment"),
+    ("00000011", "Seeds volume forecast", "structured", "databricks", "ownership", "in_review", "Awaiting domain delivery lead assignment"),
     ("00000012", "Trade terms compliance tracker", "structured", "databricks", "architecture_review", "in_review", "Security pattern under review"),
     ("00000013", "Crop protection market share", "structured", "databricks", "operate", "operating", "Stable, quarterly review scheduled"),
     ("00000014", "Channel partner scorecard", "mixed", "both", "publish", "ready", "Release notes drafted, Alation pending"),
@@ -727,11 +730,7 @@ def migrate_request_table(db: sqlite3.Connection) -> None:
               {col('jira_epic_id', "''")},
               {col('jira_link', "''")},
               {col('additional_comments', "''")},
-              CASE
-                WHEN current_stage_id IN ('reuse_domain', 'ownership') THEN 'domain_ownership'
-                WHEN current_stage_id = 'governance_review' THEN 'architecture_review'
-                ELSE current_stage_id
-              END,
+              CASE WHEN current_stage_id = 'governance_review' THEN 'architecture_review' ELSE current_stage_id END,
               CASE WHEN status_id IN ('not_started', 'in_review', 'in_progress', 'blocked', 'ready', 'operating', 'on_hold', 'cancelled', 'deprecated') THEN status_id ELSE 'in_review' END,
               {col('status_change_reason', "''")},
               {col('last_status_change_date', "NULL")},
@@ -812,7 +811,7 @@ def seed_master_data(db: sqlite3.Connection) -> None:
             ("deprecated", "Deprecated"),
         ],
     )
-    sync_stage_master_data(db)
+    insert_missing(db, "md_stages", STAGES)
     seed_commercial_subdomains(db)
     insert_missing(db, "md_subdomains", [("dummy_subdomain", "Dummy Subdomain", "dummy_domain")])
     insert_missing(
@@ -887,69 +886,6 @@ def insert_missing(db: sqlite3.Connection, table: str, rows: list[tuple]) -> Non
     db.executemany(f"INSERT OR IGNORE INTO {table} VALUES ({placeholders})", rows)
 
 
-def sync_stage_master_data(db: sqlite3.Connection) -> None:
-    migrate_merged_stages(db)
-    insert_missing(db, "md_stages", STAGES)
-    for stage_id, stage_name, stage_number in STAGES:
-        db.execute(
-            "UPDATE md_stages SET stage_name = ?, stage_number = ? WHERE stage_id = ?",
-            (stage_name, stage_number, stage_id),
-        )
-    stage_ids = [stage[0] for stage in STAGES]
-    placeholders = ", ".join(["?"] * len(stage_ids))
-    db.execute(f"DELETE FROM md_stages WHERE stage_id NOT IN ({placeholders})", tuple(stage_ids))
-
-
-def migrate_merged_stages(db: sqlite3.Connection) -> None:
-    merged_stage_map = {
-        "reuse_domain": "domain_ownership",
-        "ownership": "domain_ownership",
-    }
-    for old_stage_id, new_stage_id in merged_stage_map.items():
-        db.execute(
-            "UPDATE data_product_requests_new SET current_stage_id = ? WHERE current_stage_id = ?",
-            (new_stage_id, old_stage_id),
-        )
-        for column in ("stage_id", "from_stage_id", "to_stage_id"):
-            db.execute(
-                f"UPDATE request_timeline SET {column} = ? WHERE {column} = ?",
-                (new_stage_id, old_stage_id),
-            )
-        migrate_stage_answer_prefix(db, old_stage_id, new_stage_id)
-
-
-def migrate_stage_answer_prefix(db: sqlite3.Connection, old_stage_id: str, new_stage_id: str) -> None:
-    for key, *_ in STAGE_REQUIREMENTS[new_stage_id]:
-        old_requirement_id = f"{old_stage_id}_{key}"
-        new_requirement_id = f"{new_stage_id}_{key}"
-        rows = db.execute(
-            """
-            SELECT answer_id, request_id, answer_value, updated_at
-            FROM request_stage_answers
-            WHERE requirement_id = ?
-            """,
-            (old_requirement_id,),
-        ).fetchall()
-        for row in rows:
-            exists = db.execute(
-                """
-                SELECT 1
-                FROM request_stage_answers
-                WHERE request_id = ? AND requirement_id = ?
-                """,
-                (row["request_id"], new_requirement_id),
-            ).fetchone()
-            if not exists:
-                db.execute(
-                    """
-                    INSERT INTO request_stage_answers (answer_id, request_id, requirement_id, answer_value, updated_at)
-                    VALUES (?, ?, ?, ?, ?)
-                    """,
-                    (str(uuid.uuid4()), row["request_id"], new_requirement_id, row["answer_value"], row["updated_at"]),
-                )
-            db.execute("DELETE FROM request_stage_answers WHERE answer_id = ?", (row["answer_id"],))
-
-
 def seed_commercial_subdomains(db: sqlite3.Connection) -> None:
     commercial_subdomains = [
         ("non_transactional_customers", "Non Transactional Customers", "commercial"),
@@ -977,7 +913,7 @@ def seed_commercial_subdomains(db: sqlite3.Connection) -> None:
             UPDATE request_stage_answers
             SET answer_value = ?
             WHERE answer_value = ?
-              AND requirement_id LIKE 'domain_ownership_%'
+              AND requirement_id LIKE 'reuse_domain_%'
             """,
             (new_id, old_id),
         )
@@ -1014,7 +950,7 @@ def seed_stage_requirements(db: sqlite3.Connection) -> None:
         """
         UPDATE request_stage_answers
         SET answer_value = 'ddl_james'
-        WHERE requirement_id = 'domain_ownership_delivery_lead'
+        WHERE requirement_id = 'reuse_domain_delivery_lead'
           AND answer_value NOT IN (
             SELECT user_id FROM md_users WHERE role_key = 'domain_delivery_lead'
           )
@@ -1036,7 +972,7 @@ def seed_stage_requirements(db: sqlite3.Connection) -> None:
             """
             UPDATE request_stage_answers
             SET answer_value = '10'
-            WHERE requirement_id = 'domain_ownership_effort'
+            WHERE requirement_id = 'reuse_domain_effort'
               AND answer_value !~ '^[0-9]+$'
             """
         )
@@ -1045,7 +981,7 @@ def seed_stage_requirements(db: sqlite3.Connection) -> None:
             """
             UPDATE request_stage_answers
             SET answer_value = '10'
-            WHERE requirement_id = 'domain_ownership_effort'
+            WHERE requirement_id = 'reuse_domain_effort'
               AND answer_value GLOB '*[^0-9]*'
             """
         )
@@ -1134,11 +1070,9 @@ def import_uc_synced_requests(db: sqlite3.Connection) -> None:
     current_stage_id = f"""
         CASE LOWER(TRIM({raw_stage}))
           WHEN 'intake' THEN 'intake'
-          WHEN 'reuse_domain' THEN 'domain_ownership'
-          WHEN 'reuse / domain' THEN 'domain_ownership'
-          WHEN 'domain_ownership' THEN 'domain_ownership'
-          WHEN 'domain ownership' THEN 'domain_ownership'
-          WHEN 'ownership' THEN 'domain_ownership'
+          WHEN 'reuse_domain' THEN 'reuse_domain'
+          WHEN 'reuse / domain' THEN 'reuse_domain'
+          WHEN 'ownership' THEN 'ownership'
           WHEN 'requirements' THEN 'requirements'
           WHEN 'architecture_review' THEN 'architecture_review'
           WHEN 'architecture review' THEN 'architecture_review'
@@ -2548,7 +2482,7 @@ def reconcile_domain_subdomain(db: sqlite3.Connection, request_id: str) -> None:
         """
         DELETE FROM request_stage_answers
         WHERE request_id = ?
-          AND requirement_id IN ('domain_ownership_lead_subdomain_id')
+          AND requirement_id IN ('reuse_domain_lead_subdomain_id')
         """,
         (request_id,),
     )
