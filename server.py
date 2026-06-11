@@ -27,6 +27,7 @@ SEED_DEMO_DATA = os.getenv("GOVERNANCE_SEED_DEMO_DATA", "true").strip().lower() 
 ADMIN_ROLE_KEYS = {"admin", "data_domain_owner", "domain_delivery_lead", "lynx_pm"}
 MASTER_DATA_CACHE_SECONDS = 300
 MASTER_DATA_CACHE = {"expires_at": 0.0, "data": None}
+LAKEBASE_TOKEN_CACHE = {"expires_at": 0.0, "token": ""}
 MAX_REQUEST_BODY_BYTES = 1_000_000
 MAX_TEXT_LENGTH = 500
 MAX_TEXTAREA_LENGTH = 4000
@@ -321,6 +322,14 @@ class LakebaseConnection:
                 "Lakebase connection settings were not found. Add the Lakebase database resource "
                 "to the Databricks App so PGHOST, PGPORT, PGDATABASE, PGUSER, and PGSSLMODE are set."
             )
+        password = lakebase_password()
+        if password:
+            connect_kwargs["password"] = password
+        elif not os.getenv("PGPASSWORD", "").strip():
+            raise RuntimeError(
+                "Lakebase password/token was not found. Add DATABRICKS_POSTGRES_ENDPOINT with "
+                "valueFrom: governance-lakebase, or provide PGPASSWORD through a Databricks secret."
+            )
         if "sslmode=" not in conninfo and not os.getenv("PGSSLMODE", "").strip():
             connect_kwargs["sslmode"] = "require"
 
@@ -364,6 +373,75 @@ def quote_postgres_identifier(value: str) -> str:
 
 def postgres_statement(statement: str) -> str:
     return statement.replace("?", "%s")
+
+
+def lakebase_password() -> str:
+    explicit_password = first_env_value(
+        "PGPASSWORD",
+        "POSTGRES_PASSWORD",
+        "DATABRICKS_DATABASE_PASSWORD",
+        "DATABRICKS_POSTGRES_PASSWORD",
+        "GOVERNANCE_LAKEBASE_PASSWORD",
+    )
+    if explicit_password:
+        return explicit_password
+
+    endpoint = first_env_value(
+        "DATABRICKS_POSTGRES_ENDPOINT",
+        "DATABRICKS_DATABASE_ENDPOINT",
+        "LAKEBASE_ENDPOINT",
+        "GOVERNANCE_LAKEBASE_ENDPOINT",
+    )
+    if not endpoint:
+        return ""
+
+    cached_token = str(LAKEBASE_TOKEN_CACHE.get("token") or "")
+    if cached_token and float(LAKEBASE_TOKEN_CACHE.get("expires_at") or 0) > time.time() + 120:
+        return cached_token
+
+    try:
+        from databricks.sdk import WorkspaceClient
+    except ImportError as exc:
+        raise RuntimeError(
+            "databricks-sdk is required to generate Lakebase OAuth database credentials"
+        ) from exc
+
+    credential = WorkspaceClient().postgres.generate_database_credential(endpoint=endpoint)
+    token = getattr(credential, "token", "") or ""
+    if not token:
+        raise RuntimeError("Databricks did not return a Lakebase database credential token")
+
+    LAKEBASE_TOKEN_CACHE["token"] = token
+    LAKEBASE_TOKEN_CACHE["expires_at"] = lakebase_token_expiry_epoch(getattr(credential, "expire_time", None))
+    return token
+
+
+def first_env_value(*names: str) -> str:
+    for name in names:
+        value = os.getenv(name, "").strip()
+        if value:
+            return value
+    return ""
+
+
+def lakebase_token_expiry_epoch(expire_time: object) -> float:
+    if expire_time is None:
+        return time.time() + 50 * 60
+    timestamp = getattr(expire_time, "timestamp", None)
+    if callable(timestamp):
+        return float(timestamp())
+    seconds = getattr(expire_time, "seconds", None)
+    if isinstance(seconds, (int, float)):
+        if seconds > 10_000_000_000:
+            return float(seconds / 1000)
+        if seconds > 1_000_000_000:
+            return float(seconds)
+    if isinstance(expire_time, str):
+        try:
+            return datetime.fromisoformat(expire_time.replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            pass
+    return time.time() + 50 * 60
 
 
 def is_databricks_db(db) -> bool:

@@ -10,3 +10,5 @@ env:
     value: public
   - name: GOVERNANCE_SEED_DEMO_DATA
     value: "false"
+  - name: DATABRICKS_POSTGRES_ENDPOINT
+    valueFrom: governance-lakebase
