@@ -58,6 +58,7 @@ def main() -> None:
                 },
             )
             assert created["stageId"] == "intake"
+            assert created["id"] == "00000016"
 
             workflow = server.save_workflow_answers(
                 db,

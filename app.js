@@ -100,6 +100,7 @@ function showAppError(message) {
   if (!banner || !text) return;
   text.textContent = message || "Something went wrong.";
   banner.hidden = false;
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 function clearAppError() {
@@ -538,6 +539,7 @@ async function loadWorkflow(requestId) {
     if (activeWorkflowRequestId === requestId) {
       renderWorkflowError(error);
     }
+    showAppError(error.message || "Workflow could not be loaded.");
     console.error("Failed to load workflow", error);
   } finally {
     if (activeWorkflowRequestId === requestId) {
@@ -833,7 +835,9 @@ async function handleWorkflowSubmit(event) {
     renderWorkflow();
   } catch (error) {
     console.error("Failed to save workflow", error);
-    document.getElementById("workflowMessage").textContent = error.message || "Workflow could not be saved.";
+    const message = error.message || "Workflow could not be saved.";
+    showAppError(message);
+    document.getElementById("workflowMessage").textContent = message;
   } finally {
     setLoading("savingWorkflow", false);
     setButtonBusy(submitButton, false);
@@ -860,7 +864,9 @@ async function handleStatusSave() {
     renderWorkflow();
   } catch (error) {
     console.error("Failed to save status", error);
-    document.getElementById("workflowMessage").textContent = error.message || "Status could not be saved.";
+    const message = error.message || "Status could not be saved.";
+    showAppError(message);
+    document.getElementById("workflowMessage").textContent = message;
   } finally {
     setLoading("savingWorkflow", false);
     setButtonBusy(saveButton, false);
@@ -985,7 +991,9 @@ async function handleMasterDataSubmit(event) {
     populateRequestSelects();
     document.getElementById("masterDataMessage").textContent = "Saved.";
   } catch (error) {
-    document.getElementById("masterDataMessage").textContent = error.message || "Save failed.";
+    const message = error.message || "Save failed.";
+    showAppError(message);
+    document.getElementById("masterDataMessage").textContent = message;
   }
 }
 
@@ -998,7 +1006,9 @@ async function deleteMasterDataItem(collection, id) {
     populateRequestSelects();
     document.getElementById("masterDataMessage").textContent = "Removed.";
   } catch (error) {
-    document.getElementById("masterDataMessage").textContent = error.message || "Remove failed.";
+    const message = error.message || "Remove failed.";
+    showAppError(message);
+    document.getElementById("masterDataMessage").textContent = message;
   }
 }
 

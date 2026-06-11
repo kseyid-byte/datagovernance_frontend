@@ -155,6 +155,10 @@ STAGES = [
 
 STAGE_REQUIREMENTS = {
     "intake": [
+        ("product_type_id", "Product type", "select", "productTypes", "Select the data product type."),
+        ("target_platform_id", "Target platform", "select", "platforms", "Select the target delivery platform."),
+        ("priority_id", "Priority", "select", "priorities", "Select the request priority."),
+        ("scope_id", "Scope", "select", "scopeOptions", "Select the regional scope."),
         ("business_decision", "Business decision supported", "textarea", None, "Describe the decision this product supports."),
         ("expected_date", "Expected date", "date", None, "When is this product expected?"),
         ("additional_comments", "Additional comments", "textarea", None, "Any extra context for triage."),
@@ -203,21 +207,21 @@ STAGE_REQUIREMENTS = {
 }
 
 SEED_PRODUCTS = [
-    ("REQ-001", "Revenue KPI rebuild", "structured", "databricks", "architecture_review", "blocked", "Waiting on approved source and DQ rules"),
-    ("REQ-002", "Policy document search", "unstructured", "lynx", "build_validate", "in_progress", "Lynx content traceability under review"),
-    ("REQ-003", "Customer 360 dataset", "mixed", "both", "ownership", "in_review", "Need named owner and source system"),
-    ("REQ-004", "Marketing dashboard v2", "structured", "databricks", "operate", "operating", "Monthly review completed"),
-    ("REQ-005", "Supplier knowledge base", "unstructured", "lynx", "requirements", "in_review", "Missing CDE and quality rules"),
-    ("REQ-006", "Returns analytics layer", "structured", "databricks", "publish", "ready", "Awaiting Alation documentation"),
-    ("REQ-007", "Pricing conditions master", "structured", "databricks", "reuse_domain", "in_review", "Domain assignment pending triage"),
-    ("REQ-008", "Field trial outcomes report", "structured", "databricks", "requirements", "blocked", "Source system not yet confirmed"),
-    ("REQ-009", "Grower loyalty index", "mixed", "both", "build_validate", "in_progress", "UAT in progress with commercial team"),
-    ("REQ-010", "Digital agronomy event log", "unstructured", "lynx", "intake", "not_started", "New request submitted for triage"),
-    ("REQ-011", "Seeds volume forecast", "structured", "databricks", "ownership", "in_review", "Awaiting domain delivery lead assignment"),
-    ("REQ-012", "Trade terms compliance tracker", "structured", "databricks", "architecture_review", "in_review", "Security pattern under review"),
-    ("REQ-013", "Crop protection market share", "structured", "databricks", "operate", "operating", "Stable, quarterly review scheduled"),
-    ("REQ-014", "Channel partner scorecard", "mixed", "both", "publish", "ready", "Release notes drafted, Alation pending"),
-    ("REQ-015", "SAP order discrepancy log", "structured", "databricks", "build_validate", "blocked", "Blocked on SAP integration access"),
+    ("00000001", "Revenue KPI rebuild", "structured", "databricks", "architecture_review", "blocked", "Waiting on approved source and DQ rules"),
+    ("00000002", "Policy document search", "unstructured", "lynx", "build_validate", "in_progress", "Lynx content traceability under review"),
+    ("00000003", "Customer 360 dataset", "mixed", "both", "ownership", "in_review", "Need named owner and source system"),
+    ("00000004", "Marketing dashboard v2", "structured", "databricks", "operate", "operating", "Monthly review completed"),
+    ("00000005", "Supplier knowledge base", "unstructured", "lynx", "requirements", "in_review", "Missing CDE and quality rules"),
+    ("00000006", "Returns analytics layer", "structured", "databricks", "publish", "ready", "Awaiting Alation documentation"),
+    ("00000007", "Pricing conditions master", "structured", "databricks", "reuse_domain", "in_review", "Domain assignment pending triage"),
+    ("00000008", "Field trial outcomes report", "structured", "databricks", "requirements", "blocked", "Source system not yet confirmed"),
+    ("00000009", "Grower loyalty index", "mixed", "both", "build_validate", "in_progress", "UAT in progress with commercial team"),
+    ("00000010", "Digital agronomy event log", "unstructured", "lynx", "intake", "not_started", "New request submitted for triage"),
+    ("00000011", "Seeds volume forecast", "structured", "databricks", "ownership", "in_review", "Awaiting domain delivery lead assignment"),
+    ("00000012", "Trade terms compliance tracker", "structured", "databricks", "architecture_review", "in_review", "Security pattern under review"),
+    ("00000013", "Crop protection market share", "structured", "databricks", "operate", "operating", "Stable, quarterly review scheduled"),
+    ("00000014", "Channel partner scorecard", "mixed", "both", "publish", "ready", "Release notes drafted, Alation pending"),
+    ("00000015", "SAP order discrepancy log", "structured", "databricks", "build_validate", "blocked", "Blocked on SAP integration access"),
 ]
 
 
@@ -1023,7 +1027,7 @@ def import_uc_synced_requests(db: sqlite3.Connection) -> None:
     request_id = coalesce(["request_id", "id", "data_product_id"], row_hash)
     request_number = coalesce(
         ["request_number", "business_request_id", "data_product_business_id"],
-        f"'REQ-UC-' || LEFT({row_hash}, 8)",
+        f"LPAD((MOD(ABS(('x' || LEFT({row_hash}, 8))::bit(32)::bigint), 100000000))::text, 8, '0')",
     )
     raw_priority = expr(["priority", "priority_id"], "'p2'")
     priority_id = f"""
@@ -1345,6 +1349,33 @@ def normalized_id_expr(value_expr: str) -> str:
     return f"NULLIF(REGEXP_REPLACE(LOWER(TRIM({value_expr})), '[^a-z0-9]+', '_', 'g'), '')"
 
 
+def normalize_request_number(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    numeric_match = re.fullmatch(r"\d+", text)
+    if numeric_match:
+        return text.zfill(8)
+    legacy_match = re.fullmatch(r"REQ-(\d+)", text, flags=re.IGNORECASE)
+    if legacy_match:
+        return legacy_match.group(1).zfill(8)
+    return text
+
+
+def request_number_sort_value(value: object) -> int:
+    text = str(value or "").strip()
+    numeric_match = re.fullmatch(r"\d+", text)
+    if numeric_match:
+        return int(text)
+    legacy_match = re.fullmatch(r"REQ-(\d+)", text, flags=re.IGNORECASE)
+    if legacy_match:
+        return int(legacy_match.group(1))
+    trailing_match = re.search(r"(\d+)$", text)
+    if trailing_match:
+        return int(trailing_match.group(1))
+    return 0
+
+
 def clean_integer_sql(value_expr: str) -> str:
     if value_expr == "NULL":
         return "NULL"
@@ -1420,7 +1451,7 @@ def backfill_demo_stage_answers(db: sqlite3.Connection) -> None:
         SELECT request_id, request_number, current_stage_id, stage_number
         FROM data_product_requests_new r
         JOIN md_stages s ON s.stage_id = r.current_stage_id
-        WHERE request_number BETWEEN 'REQ-001' AND 'REQ-006'
+        WHERE request_number BETWEEN '00000001' AND '00000006'
         """
     ).fetchall()
     timestamp = now()
@@ -1465,6 +1496,14 @@ def demo_answer(requirement: sqlite3.Row) -> str:
         return "10"
     if requirement["requirement_key"] == "jira_link":
         return "https://jira.example.com/browse/DEMO"
+    if requirement["master_data_type"] == "productTypes":
+        return "structured"
+    if requirement["master_data_type"] == "platforms":
+        return "databricks"
+    if requirement["master_data_type"] == "priorities":
+        return "p2"
+    if requirement["master_data_type"] == "scopeOptions":
+        return "global"
     if requirement["master_data_type"] == "domains":
         return "commercial"
     if requirement["master_data_type"] == "subdomains":
@@ -1483,15 +1522,11 @@ def demo_answer(requirement: sqlite3.Row) -> str:
 
 
 def next_request_number(db: sqlite3.Connection) -> str:
-    rows = db.execute(
-        "SELECT request_number FROM data_product_requests_new WHERE request_number LIKE 'REQ-%'"
-    ).fetchall()
+    rows = db.execute("SELECT request_number FROM data_product_requests_new").fetchall()
     max_number = 0
     for row in rows:
-        match = re.match(r"^REQ-(\d+)$", row["request_number"] or "")
-        if match:
-            max_number = max(max_number, int(match.group(1)))
-    return f"REQ-{max_number + 1:03d}"
+        max_number = max(max_number, request_number_sort_value(row["request_number"]))
+    return f"{max_number + 1:08d}"
 
 
 def validate_payload(payload: dict) -> str | None:
@@ -1514,7 +1549,7 @@ def resolve_domain_id(db: sqlite3.Connection, domain_id: str | None) -> str:
 def insert_request(db: sqlite3.Connection, payload: dict, timestamp: str | None = None) -> dict:
     timestamp = timestamp or now()
     request_id = str(uuid.uuid4())
-    request_number = payload.get("request_number") or next_request_number(db)
+    request_number = normalize_request_number(payload.get("request_number")) or next_request_number(db)
     stage_id = ensure_reference(db, "md_stages", "stage_id", payload.get("stage", "intake"), "stage")
     status_id = ensure_reference(db, "md_statuses", "status_id", payload.get("status", "in_review"), "status")
     domain_id = resolve_domain_id(db, payload.get("domain"))
@@ -2020,6 +2055,14 @@ def validate_requirement_answer(db: sqlite3.Connection, requirement: dict, value
 
     if master_type == "domains":
         return ensure_reference(db, "md_domains", "domain_id", text_value, requirement["label"])
+    if master_type == "productTypes":
+        return ensure_reference(db, "md_product_types", "product_type_id", text_value, requirement["label"])
+    if master_type == "platforms":
+        return ensure_reference(db, "md_platforms", "platform_id", text_value, requirement["label"])
+    if master_type == "priorities":
+        return ensure_reference(db, "md_priorities", "priority_id", text_value, requirement["label"])
+    if master_type == "scopeOptions":
+        return ensure_reference(db, "md_scope_options", "scope_id", text_value, requirement["label"])
     if master_type == "subdomains":
         return ensure_reference(db, "md_subdomains", "subdomain_id", text_value, requirement["label"])
     if master_type == "sourceSystems":
@@ -2194,6 +2237,11 @@ def get_stage_requirements(db: sqlite3.Connection, request_id: str, stage_id: st
           req.help_text,
           req.is_required,
           CASE req.requirement_key
+            WHEN 'product_type_id' THEN r.product_type_id
+            WHEN 'target_platform_id' THEN r.target_platform_id
+            WHEN 'priority_id' THEN r.priority_id
+            WHEN 'scope_id' THEN COALESCE(r.scope_id, '')
+            WHEN 'business_decision' THEN COALESCE(r.description, '')
             WHEN 'lead_domain_id' THEN r.lead_domain_id
             WHEN 'lead_subdomain_id' THEN COALESCE(r.lead_subdomain_id, '')
             WHEN 'delivery_date' THEN COALESCE(r.delivery_date, '')
@@ -2345,6 +2393,11 @@ def save_request_status(db: sqlite3.Connection, request_id: str, payload: dict) 
 
 def update_structured_field(db: sqlite3.Connection, request_id: str, key: str, value: str) -> None:
     field_map = {
+        "product_type_id": "product_type_id",
+        "target_platform_id": "target_platform_id",
+        "priority_id": "priority_id",
+        "scope_id": "scope_id",
+        "business_decision": "description",
         "lead_domain_id": "lead_domain_id",
         "lead_subdomain_id": "lead_subdomain_id",
         "delivery_date": "delivery_date",
@@ -2365,7 +2418,17 @@ def update_structured_field(db: sqlite3.Connection, request_id: str, key: str, v
         return
 
     stored_value: str | int | None = value
-    if key == "lead_domain_id":
+    if key == "product_type_id":
+        stored_value = ensure_reference(db, "md_product_types", "product_type_id", value, "product type")
+    elif key == "target_platform_id":
+        stored_value = ensure_reference(db, "md_platforms", "platform_id", value, "target platform")
+    elif key == "priority_id":
+        stored_value = ensure_reference(db, "md_priorities", "priority_id", value, "priority")
+    elif key == "scope_id":
+        stored_value = ensure_reference(db, "md_scope_options", "scope_id", value, "scope", required=False) or None
+    elif key == "business_decision":
+        stored_value = clean_text(value, "business decision", max_length=MAX_TEXTAREA_LENGTH) or None
+    elif key == "lead_domain_id":
         stored_value = resolve_domain_id(db, value)
     elif key == "lead_subdomain_id":
         stored_value = ensure_reference(db, "md_subdomains", "subdomain_id", value, "lead subdomain", required=False) or None
@@ -2435,24 +2498,9 @@ def advance_if_complete(db: sqlite3.Connection, request_id: str, saved_stage_id:
     if not current or current["current_stage_id"] != saved_stage_id:
         return False
 
-    missing = db.execute(
-        """
-        SELECT COUNT(*) AS missing_count
-        FROM md_stage_requirements req
-        LEFT JOIN request_stage_answers ans
-          ON ans.requirement_id = req.requirement_id
-         AND ans.request_id = ?
-        WHERE req.stage_id = ?
-          AND req.is_required = 1
-          AND (
-            ans.answer_value IS NULL
-            OR TRIM(ans.answer_value) = ''
-            OR (req.input_type = 'checkbox' AND ans.answer_value <> 'true')
-          )
-        """,
-        (request_id, saved_stage_id),
-    ).fetchone()["missing_count"]
-    if missing:
+    requirements = get_stage_requirements(db, request_id, saved_stage_id)
+    missing_required = any(item["is_required"] and not is_answer_complete(item) for item in requirements)
+    if missing_required:
         return False
 
     next_stage = db.execute(
@@ -2507,7 +2555,7 @@ def serialize_request(row: sqlite3.Row) -> dict:
     delivery_lead = row["delivery_lead"] or ""
     delivery_lead_name = row["delivery_lead_name"] or delivery_lead
     return {
-        "id": row["request_number"],
+        "id": normalize_request_number(row["request_number"]),
         "requestId": row["request_id"],
         "title": row["title"],
         "description": row["description"] or "",
