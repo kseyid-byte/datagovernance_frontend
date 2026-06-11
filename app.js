@@ -27,8 +27,8 @@ const minimumLoadingMs = 450;
 const tableFilters = {};
 const stageDescriptions = {
   intake: "Capture request, requester, priority, scope, and expected date.",
-  reuse_domain: "Check reuse and assign the accountable lead subdomain.",
-  ownership: "Assign owner, source system, delivery lead, and Lynx PM.",
+  reuse_domain: "Assign lead domain, subdomain, delivery lead, data domain owner, domain delivery lead, and Lynx PM.",
+  ownership: "Estimate delivery date, effort, Jira tracking, reuse check, and source system outputs.",
   requirements: "Confirm KPIs, definitions, grain, sources, CDEs, and DQ rules.",
   architecture_review: "Confirm design, security, and tooling are approved.",
   build_validate: "Track build status, testing, UAT, and validation evidence.",

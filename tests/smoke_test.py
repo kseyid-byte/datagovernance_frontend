@@ -79,16 +79,21 @@ def main() -> None:
                 "publish",
                 "operate",
             ]
+            assert [stage["name"] for stage in master_data["stages"][:3]] == [
+                "Intake",
+                "Domain Ownership",
+                "Estimation",
+            ]
             restored = server.get_request_by_id(db, restore_request)
             assert restored["stageId"] == "ownership"
             assert not db.execute("SELECT 1 FROM md_stages WHERE stage_id = ?", ("domain_ownership",)).fetchone()
             assert db.execute(
                 "SELECT 1 FROM request_stage_answers WHERE request_id = ? AND requirement_id = ?",
-                (restore_request, "reuse_domain_jira_link"),
+                (restore_request, "ownership_jira_link"),
             ).fetchone()
             assert db.execute(
                 "SELECT 1 FROM request_stage_answers WHERE request_id = ? AND requirement_id = ?",
-                (restore_request, "ownership_data_domain_owner_user_id"),
+                (restore_request, "reuse_domain_data_domain_owner_user_id"),
             ).fetchone()
 
             dashboard = server.get_dashboard(db)
@@ -133,14 +138,33 @@ def main() -> None:
             assert workflow["advanced"] is True
             assert workflow["request"]["stageId"] == "reuse_domain"
 
+            workflow = server.save_workflow_answers(
+                db,
+                created["requestId"],
+                {
+                    "stageId": "reuse_domain",
+                    "updatedBy": "kerem.seyid@syngenta.com",
+                    "answers": {
+                        "reuse_domain_lead_domain_id": "commercial",
+                        "reuse_domain_lead_subdomain_id": "sales_commercial_transactions",
+                        "reuse_domain_delivery_lead": "ddl_james",
+                        "reuse_domain_data_domain_owner_user_id": "udo_anna",
+                        "reuse_domain_domain_delivery_lead_user_id": "ddl_james",
+                        "reuse_domain_lynx_pm_user_id": "pm_lynx_maya",
+                    },
+                },
+            )
+            assert workflow["advanced"] is True
+            assert workflow["request"]["stageId"] == "ownership"
+
             try:
                 server.save_workflow_answers(
                     db,
                     created["requestId"],
                     {
-                        "stageId": "reuse_domain",
+                        "stageId": "ownership",
                         "updatedBy": "kerem.seyid@syngenta.com",
-                        "answers": {"reuse_domain_jira_link": "javascript:alert(1)"},
+                        "answers": {"ownership_jira_link": "javascript:alert(1)"},
                     },
                 )
             except ValueError:

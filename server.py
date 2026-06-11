@@ -144,8 +144,8 @@ CAMEL_CASE_KEYS = {
 
 STAGES = [
     ("intake", "Intake", 1),
-    ("reuse_domain", "Reuse / Domain", 2),
-    ("ownership", "Ownership", 3),
+    ("reuse_domain", "Domain Ownership", 2),
+    ("ownership", "Estimation", 3),
     ("requirements", "Requirements", 4),
     ("architecture_review", "Architecture Review", 5),
     ("build_validate", "Build / Validate", 6),
@@ -166,18 +166,18 @@ STAGE_REQUIREMENTS = {
     "reuse_domain": [
         ("lead_domain_id", "Lead domain", "select", "domains", "Select the accountable data domain."),
         ("lead_subdomain_id", "Lead subdomain", "select", "subdomains", "Assign the accountable subdomain for the selected domain."),
-        ("delivery_date", "Delivery date", "date", None, "Set the planned delivery date."),
         ("delivery_lead", "Delivery lead", "select", "domainDeliveryLeads", "Select from the same master data as Domain Delivery Lead."),
+        ("data_domain_owner_user_id", "Data Domain Owner", "select", "dataDomainOwners", "Select from master data."),
+        ("domain_delivery_lead_user_id", "Domain Delivery Lead", "select", "domainDeliveryLeads", "Select from master data."),
+        ("lynx_pm_user_id", "Lynx PM input", "select", "lynxPms", "Select the Lynx PM accountable for input."),
+    ],
+    "ownership": [
+        ("delivery_date", "Delivery date", "date", None, "Set the planned delivery date."),
         ("effort", "Effort", "number", None, "Estimate delivery effort in days."),
         ("jira_epic_id", "Jira epic ID", "text", None, "Add the Jira epic or delivery tracking ID."),
         ("jira_link", "Jira link", "text", None, "Add the Jira epic or story link."),
         ("reuse_checked", "Existing product reuse checked", "checkbox", None, "Confirm existing data products were checked first."),
-    ],
-    "ownership": [
-        ("data_domain_owner_user_id", "Data Domain Owner", "select", "dataDomainOwners", "Select from master data."),
-        ("source_system_id", "Source System", "select", "sourceSystems", "Select the approved source system."),
-        ("domain_delivery_lead_user_id", "Domain Delivery Lead", "select", "domainDeliveryLeads", "Select from master data."),
-        ("lynx_pm_user_id", "Lynx PM input", "select", "lynxPms", "Select the Lynx PM accountable for input."),
+        ("source_system_id", "Source system outputs", "select", "sourceSystems", "Select the approved source system output."),
     ],
     "requirements": [
         ("kpis_defined", "KPIs defined", "checkbox", None, "Confirm KPIs are documented."),
@@ -1042,6 +1042,7 @@ def seed_stage_requirements(db: sqlite3.Connection) -> None:
                 """,
                 (f"{stage_id}_{key}", stage_id, key, label, input_type, master_type, help_text, index),
             )
+    migrate_reordered_stage_answers(db)
     db.execute(
         """
         DELETE FROM request_stage_answers
@@ -1074,7 +1075,7 @@ def seed_stage_requirements(db: sqlite3.Connection) -> None:
             """
             UPDATE request_stage_answers
             SET answer_value = '10'
-            WHERE requirement_id = 'reuse_domain_effort'
+            WHERE requirement_id = 'ownership_effort'
               AND answer_value !~ '^[0-9]+$'
             """
         )
@@ -1083,10 +1084,54 @@ def seed_stage_requirements(db: sqlite3.Connection) -> None:
             """
             UPDATE request_stage_answers
             SET answer_value = '10'
-            WHERE requirement_id = 'reuse_domain_effort'
+            WHERE requirement_id = 'ownership_effort'
               AND answer_value GLOB '*[^0-9]*'
             """
         )
+
+
+def migrate_reordered_stage_answers(db: sqlite3.Connection) -> None:
+    moved_requirements = [
+        ("reuse_domain_delivery_date", "ownership_delivery_date"),
+        ("reuse_domain_effort", "ownership_effort"),
+        ("reuse_domain_jira_epic_id", "ownership_jira_epic_id"),
+        ("reuse_domain_jira_link", "ownership_jira_link"),
+        ("reuse_domain_reuse_checked", "ownership_reuse_checked"),
+        ("ownership_data_domain_owner_user_id", "reuse_domain_data_domain_owner_user_id"),
+        ("ownership_domain_delivery_lead_user_id", "reuse_domain_domain_delivery_lead_user_id"),
+        ("ownership_lynx_pm_user_id", "reuse_domain_lynx_pm_user_id"),
+    ]
+    for old_requirement_id, new_requirement_id in moved_requirements:
+        migrate_requirement_answer(db, old_requirement_id, new_requirement_id)
+
+
+def migrate_requirement_answer(db: sqlite3.Connection, old_requirement_id: str, new_requirement_id: str) -> None:
+    rows = db.execute(
+        """
+        SELECT answer_id, request_id, answer_value, updated_at
+        FROM request_stage_answers
+        WHERE requirement_id = ?
+        """,
+        (old_requirement_id,),
+    ).fetchall()
+    for row in rows:
+        exists = db.execute(
+            """
+            SELECT 1
+            FROM request_stage_answers
+            WHERE request_id = ? AND requirement_id = ?
+            """,
+            (row["request_id"], new_requirement_id),
+        ).fetchone()
+        if not exists:
+            db.execute(
+                """
+                INSERT INTO request_stage_answers (answer_id, request_id, requirement_id, answer_value, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (str(uuid.uuid4()), row["request_id"], new_requirement_id, row["answer_value"], row["updated_at"]),
+            )
+        db.execute("DELETE FROM request_stage_answers WHERE answer_id = ?", (row["answer_id"],))
 
 
 def import_uc_synced_requests(db: sqlite3.Connection) -> None:
