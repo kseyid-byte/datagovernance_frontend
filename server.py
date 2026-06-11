@@ -369,6 +369,9 @@ class LakebaseConnection:
     def commit(self) -> None:
         self.connection.commit()
 
+    def rollback(self) -> None:
+        self.connection.rollback()
+
     def close(self) -> None:
         self.connection.close()
 
@@ -1275,6 +1278,39 @@ def lakebase_synced_table_candidates(db: sqlite3.Connection) -> list[dict]:
         (LAKEBASE_SCHEMA, configured_names(UC_SYNC_REQUESTS_TABLE)[0] if configured_names(UC_SYNC_REQUESTS_TABLE) else "", "%request%"),
     ).fetchall()
     return [{"schema": row["schema"], "table": row["table"]} for row in rows]
+
+
+def lakebase_context(db: sqlite3.Connection) -> dict:
+    if not is_lakebase_db(db):
+        return {}
+    row = db.execute(
+        "SELECT current_database() AS database, current_schema() AS schema, current_user AS user"
+    ).fetchone()
+    return {
+        "database": row["database"],
+        "schema": row["schema"],
+        "user": row["user"],
+    }
+
+
+def uc_synced_table_probes(db: sqlite3.Connection) -> list[dict]:
+    if not is_lakebase_db(db):
+        return []
+    probes = []
+    for schema in configured_names(UC_SYNC_SCHEMA):
+        for table in configured_names(UC_SYNC_REQUESTS_TABLE):
+            source = f"{schema}.{table}"
+            try:
+                db.execute(
+                    f"SELECT 1 FROM {quote_postgres_identifier(schema)}.{quote_postgres_identifier(table)} LIMIT 1"
+                ).fetchone()
+                probes.append({"source": source, "canSelect": True})
+            except Exception as exc:
+                rollback = getattr(db, "rollback", None)
+                if rollback:
+                    rollback()
+                probes.append({"source": source, "canSelect": False, "error": f"{type(exc).__name__}: {exc}"})
+    return probes
 
 
 def lakebase_table_exists(db: sqlite3.Connection, schema: str, table: str) -> bool:
@@ -2561,6 +2597,12 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
                         payload["healthError"] = f"{type(exc).__name__}: {exc}"
                 if APP_BACKEND == "lakebase":
                     payload["ucImport"] = dict(UC_IMPORT_STATUS)
+                    try:
+                        with connect() as db:
+                            payload["lakebaseContext"] = lakebase_context(db)
+                            payload["ucImport"]["probes"] = uc_synced_table_probes(db)
+                    except Exception as exc:
+                        payload["ucImport"]["diagnosticError"] = f"{type(exc).__name__}: {exc}"
                 self.send_json(payload)
                 return
             if STARTUP_ERROR:
