@@ -19,7 +19,11 @@ The Lakebase branch uses:
 ```yaml
 GOVERNANCE_BACKEND: lakebase
 GOVERNANCE_LAKEBASE_SCHEMA: governance_app
-GOVERNANCE_SEED_DEMO_DATA: "true"
+GOVERNANCE_SEED_DEMO_DATA: "false"
+GOVERNANCE_IMPORT_UC_SYNCED_DATA: "true"
+GOVERNANCE_UC_IMPORT_REPLACE: "true"
+GOVERNANCE_UC_SYNC_SCHEMA: app_control_tables
+GOVERNANCE_UC_SYNC_REQUESTS_TABLE: data_product_requests_new_synced
 GOVERNANCE_ADMIN_EMAILS: kerem.seyid@syngenta.com,harish.krishnamoorthy@syngenta.com
 DATABRICKS_POSTGRES_ENDPOINT:
   valueFrom: governance-lakebase
@@ -60,7 +64,8 @@ On startup in Lakebase mode, the app:
 2. Creates the configured PostgreSQL schema if needed.
 3. Creates all app tables from `sql/lakebase_schema.sql` if they do not exist.
 4. Seeds master data and workflow stage requirements.
-5. Seeds demo product requests when the request table is empty, so the app has data for testing.
+5. Imports product request records from the Lakebase synced copy of the Unity Catalog table when that synced table exists.
+6. Removes Lakebase request rows that are not in the synced UC table, because `GOVERNANCE_UC_IMPORT_REPLACE=true`.
 
 ## Validation
 
@@ -82,11 +87,17 @@ Expected response shape:
     "stages": 8,
     "sourceSystems": 5,
     "stageRequirements": 30
+  },
+  "ucImport": {
+    "enabled": true,
+    "status": "imported",
+    "replace": true,
+    "source": "app_control_tables.data_product_requests_new_synced"
   }
 }
 ```
 
-On a fresh Lakebase database, request count should become non-zero after startup because demo product seeding is enabled for this test branch. Master data counts should not be `0`.
+For Unity Catalog data to appear in the app, create a Lakebase synced table from `venus_forge_dev.app_control_tables.data_product_requests_new`. With the default Databricks naming, the synced table should appear in Lakebase as `app_control_tables.data_product_requests_new_synced`. If `/api/health` shows `ucImport.status = "skipped"`, the synced table has not been created or the schema/table names do not match the app config. With replace mode enabled, existing demo/request rows not present in the synced UC source are removed from the Lakebase app table on startup.
 
 Then validate through the UI:
 

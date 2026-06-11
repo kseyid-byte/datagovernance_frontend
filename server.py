@@ -24,6 +24,10 @@ STARTUP_ERROR: str | None = None
 IDENTITY_DEBUG = os.getenv("GOVERNANCE_IDENTITY_DEBUG", "").strip().lower() in {"1", "true", "yes"}
 ALLOW_IDENTITY_FALLBACK = os.getenv("GOVERNANCE_ALLOW_IDENTITY_FALLBACK", "").strip().lower() in {"1", "true", "yes"}
 SEED_DEMO_DATA = os.getenv("GOVERNANCE_SEED_DEMO_DATA", "true").strip().lower() in {"1", "true", "yes"}
+IMPORT_UC_SYNCED_DATA = os.getenv("GOVERNANCE_IMPORT_UC_SYNCED_DATA", "").strip().lower() in {"1", "true", "yes"}
+UC_IMPORT_REPLACE = os.getenv("GOVERNANCE_UC_IMPORT_REPLACE", "").strip().lower() in {"1", "true", "yes"}
+UC_SYNC_SCHEMA = os.getenv("GOVERNANCE_UC_SYNC_SCHEMA", "app_control_tables").strip()
+UC_SYNC_REQUESTS_TABLE = os.getenv("GOVERNANCE_UC_SYNC_REQUESTS_TABLE", "data_product_requests_new_synced").strip()
 ADMIN_ROLE_KEYS = {"admin", "data_domain_owner", "domain_delivery_lead", "lynx_pm"}
 CONFIGURED_ADMIN_EMAILS = {
     email.strip().lower()
@@ -33,6 +37,7 @@ CONFIGURED_ADMIN_EMAILS = {
 MASTER_DATA_CACHE_SECONDS = 300
 MASTER_DATA_CACHE = {"expires_at": 0.0, "data": None}
 LAKEBASE_TOKEN_CACHE = {"expires_at": 0.0, "token": ""}
+UC_IMPORT_STATUS = {"enabled": IMPORT_UC_SYNCED_DATA, "status": "not_run"}
 MAX_REQUEST_BODY_BYTES = 1_000_000
 MAX_TEXT_LENGTH = 500
 MAX_TEXTAREA_LENGTH = 4000
@@ -491,10 +496,11 @@ def init_db() -> None:
             seed_master_data(db)
             seed_stage_requirements(db)
             ensure_master_data_ready(db)
+            import_uc_synced_requests(db)
             if SEED_DEMO_DATA:
                 seed_requests(db)
                 backfill_demo_stage_answers(db)
-                seed_missing_timelines(db)
+            seed_missing_timelines(db)
             db.commit()
         return
     if APP_BACKEND != "sqlite":
@@ -971,6 +977,276 @@ def seed_stage_requirements(db: sqlite3.Connection) -> None:
               AND answer_value GLOB '*[^0-9]*'
             """
         )
+
+
+def import_uc_synced_requests(db: sqlite3.Connection) -> None:
+    if not is_lakebase_db(db) or not IMPORT_UC_SYNCED_DATA:
+        UC_IMPORT_STATUS.update({"enabled": IMPORT_UC_SYNCED_DATA, "status": "disabled"})
+        return
+    if not UC_SYNC_SCHEMA or not UC_SYNC_REQUESTS_TABLE:
+        UC_IMPORT_STATUS.update({"enabled": True, "status": "skipped", "reason": "UC sync schema/table is not configured"})
+        return
+    if not lakebase_table_exists(db, UC_SYNC_SCHEMA, UC_SYNC_REQUESTS_TABLE):
+        UC_IMPORT_STATUS.update(
+            {
+                "enabled": True,
+                "status": "skipped",
+                "reason": f"Synced UC table not found: {UC_SYNC_SCHEMA}.{UC_SYNC_REQUESTS_TABLE}",
+            }
+        )
+        return
+
+    source_columns = lakebase_table_columns(db, UC_SYNC_SCHEMA, UC_SYNC_REQUESTS_TABLE)
+    column_map = {column.lower(): column for column in source_columns}
+
+    def expr(candidates: list[str], fallback: str = "NULL") -> str:
+        for candidate in candidates:
+            source_column = column_map.get(candidate.lower())
+            if source_column:
+                return f"NULLIF(CAST(s.{quote_postgres_identifier(source_column)} AS TEXT), '')"
+        return fallback
+
+    def coalesce(candidates: list[str], fallback: str) -> str:
+        return f"COALESCE({expr(candidates)}, {fallback})"
+
+    source_ref = f"{quote_postgres_identifier(UC_SYNC_SCHEMA)}.{quote_postgres_identifier(UC_SYNC_REQUESTS_TABLE)}"
+    row_hash = "md5(to_jsonb(s)::text)"
+    request_id = coalesce(["request_id", "id", "data_product_id"], row_hash)
+    request_number = coalesce(
+        ["request_number", "business_request_id", "data_product_business_id"],
+        f"'REQ-UC-' || LEFT({row_hash}, 8)",
+    )
+    raw_priority = expr(["priority", "priority_id"], "'p2'")
+    priority_id = f"""
+        CASE LOWER(TRIM({raw_priority}))
+          WHEN 'p1' THEN 'p1'
+          WHEN 'high' THEN 'p1'
+          WHEN 'p2' THEN 'p2'
+          WHEN 'medium' THEN 'p2'
+          WHEN 'p3' THEN 'p3'
+          WHEN 'low' THEN 'p3'
+          ELSE 'p2'
+        END
+    """
+    raw_status = expr(["status_id", "status"], "'in_review'")
+    status_id = f"""
+        CASE LOWER(TRIM({raw_status}))
+          WHEN 'not_started' THEN 'not_started'
+          WHEN 'not started' THEN 'not_started'
+          WHEN 'pending' THEN 'in_review'
+          WHEN 'open' THEN 'in_review'
+          WHEN 'approved' THEN 'in_progress'
+          WHEN 'in_review' THEN 'in_review'
+          WHEN 'in review' THEN 'in_review'
+          WHEN 'in_progress' THEN 'in_progress'
+          WHEN 'in progress' THEN 'in_progress'
+          WHEN 'blocked' THEN 'blocked'
+          WHEN 'ready' THEN 'ready'
+          WHEN 'completed' THEN 'operating'
+          WHEN 'closed' THEN 'operating'
+          WHEN 'operating' THEN 'operating'
+          WHEN 'on_hold' THEN 'on_hold'
+          WHEN 'on hold' THEN 'on_hold'
+          WHEN 'cancelled' THEN 'cancelled'
+          WHEN 'canceled' THEN 'cancelled'
+          WHEN 'deprecated' THEN 'deprecated'
+          ELSE 'in_review'
+        END
+    """
+    raw_stage = expr(["current_stage_id", "stage_id", "stage"], "'intake'")
+    current_stage_id = f"""
+        CASE LOWER(TRIM({raw_stage}))
+          WHEN 'intake' THEN 'intake'
+          WHEN 'reuse_domain' THEN 'reuse_domain'
+          WHEN 'reuse / domain' THEN 'reuse_domain'
+          WHEN 'ownership' THEN 'ownership'
+          WHEN 'requirements' THEN 'requirements'
+          WHEN 'architecture_review' THEN 'architecture_review'
+          WHEN 'architecture review' THEN 'architecture_review'
+          WHEN 'governance_review' THEN 'architecture_review'
+          WHEN 'build_validate' THEN 'build_validate'
+          WHEN 'build / validate' THEN 'build_validate'
+          WHEN 'publish' THEN 'publish'
+          WHEN 'operate' THEN 'operate'
+          ELSE 'intake'
+        END
+    """
+    raw_domain = expr(["lead_domain_id", "domain", "commercial_domain"], "'commercial'")
+    lead_domain_id = f"COALESCE(NULLIF(REGEXP_REPLACE(LOWER(TRIM({raw_domain})), '[^a-z0-9]+', '_', 'g'), ''), 'commercial')"
+
+    target_columns = [
+        "request_id",
+        "request_number",
+        "title",
+        "description",
+        "product_type_id",
+        "target_platform_id",
+        "priority_id",
+        "lead_domain_id",
+        "business_unit_id",
+        "scope_id",
+        "requester_name",
+        "requester_email",
+        "initiative",
+        "expected_date",
+        "delivery_date",
+        "delivery_lead",
+        "effort",
+        "jira_epic_id",
+        "jira_link",
+        "additional_comments",
+        "current_stage_id",
+        "status_id",
+        "status_change_reason",
+        "last_status_change_date",
+        "last_status_changed_by",
+        "lead_subdomain_id",
+        "data_domain_owner_user_id",
+        "source_system_id",
+        "domain_delivery_lead_user_id",
+        "lynx_pm_user_id",
+        "build_status_id",
+        "note",
+        "created_at",
+        "updated_at",
+    ]
+    select_expressions = [
+        request_id,
+        request_number,
+        coalesce(["title", "data_product_name", "data_object"], "'Imported UC data product'"),
+        expr(["description", "data_object", "note", "additional_comments"], "''"),
+        "'structured'",
+        "'databricks'",
+        priority_id,
+        lead_domain_id,
+        normalized_id_expr(expr(["business_unit_id", "business_unit"], "NULL")),
+        normalized_id_expr(expr(["scope_id", "scope", "region"], "NULL")),
+        coalesce(["requester_name", "requestor", "requested_by", "requester"], "''"),
+        coalesce(["requester_email", "requested_by"], "''"),
+        expr(["initiative"], "''"),
+        expr(["expected_date", "business_expected_date"], "''"),
+        expr(["delivery_date"], "''"),
+        expr(["delivery_lead", "domain_delivery_lead_user_id", "data_engineer"], "''"),
+        clean_integer_sql(expr(["effort"], "NULL")),
+        expr(["jira_epic_id"], "''"),
+        expr(["jira_link"], "''"),
+        expr(["additional_comments"], "''"),
+        current_stage_id,
+        status_id,
+        expr(["status_change_reason"], "''"),
+        expr(["last_status_change_date"], "''"),
+        expr(["last_status_changed_by"], "''"),
+        normalized_id_expr(expr(["lead_subdomain_id", "subdomain"], "NULL")),
+        expr(["data_domain_owner_user_id", "data_owner"], "''"),
+        normalized_id_expr(expr(["source_system_id", "source_system"], "NULL")),
+        expr(["domain_delivery_lead_user_id"], "''"),
+        expr(["lynx_pm_user_id"], "''"),
+        normalized_id_expr(expr(["build_status_id", "build_status"], "NULL")),
+        expr(["note", "status_change_reason"], "''"),
+        coalesce(["created_at", "requested_date", "last_status_change_date"], f"'{now()}'"),
+        coalesce(["updated_at", "last_status_change_date", "requested_date"], f"'{now()}'"),
+    ]
+    update_assignments = ", ".join(
+        [f"{column} = excluded.{column}" for column in target_columns if column != "request_id"]
+    )
+    db.execute(
+        f"""
+        INSERT INTO data_product_requests_new ({", ".join(target_columns)})
+        SELECT {", ".join(select_expressions)}
+        FROM {source_ref} s
+        ON CONFLICT(request_id) DO UPDATE SET {update_assignments}
+        """
+    )
+    if UC_IMPORT_REPLACE:
+        db.execute(
+            f"""
+            DELETE FROM data_product_requests_new t
+            WHERE NOT EXISTS (
+              SELECT 1
+              FROM {source_ref} s
+              WHERE t.request_id = {request_id}
+            )
+            """
+        )
+        db.execute(
+            """
+            DELETE FROM request_stage_answers
+            WHERE request_id NOT IN (SELECT request_id FROM data_product_requests_new)
+            """
+        )
+        db.execute(
+            """
+            DELETE FROM request_timeline
+            WHERE request_id NOT IN (SELECT request_id FROM data_product_requests_new)
+            """
+        )
+    backfill_master_data_from_requests(db)
+    imported_count = db.execute("SELECT COUNT(*) AS count FROM data_product_requests_new").fetchone()["count"]
+    UC_IMPORT_STATUS.update(
+        {
+            "enabled": True,
+            "status": "imported",
+            "replace": UC_IMPORT_REPLACE,
+            "source": f"{UC_SYNC_SCHEMA}.{UC_SYNC_REQUESTS_TABLE}",
+            "requests": int(imported_count or 0),
+        }
+    )
+
+
+def lakebase_table_exists(db: sqlite3.Connection, schema: str, table: str) -> bool:
+    row = db.execute(
+        """
+        SELECT EXISTS (
+          SELECT 1
+          FROM information_schema.tables
+          WHERE table_schema = ? AND table_name = ?
+        ) AS exists
+        """,
+        (schema, table),
+    ).fetchone()
+    return bool(row and row["exists"])
+
+
+def lakebase_table_columns(db: sqlite3.Connection, schema: str, table: str) -> list[str]:
+    rows = db.execute(
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = ? AND table_name = ?
+        """,
+        (schema, table),
+    ).fetchall()
+    return [row["column_name"] for row in rows]
+
+
+def normalized_id_expr(value_expr: str) -> str:
+    if value_expr == "NULL":
+        return "NULL"
+    return f"NULLIF(REGEXP_REPLACE(LOWER(TRIM({value_expr})), '[^a-z0-9]+', '_', 'g'), '')"
+
+
+def clean_integer_sql(value_expr: str) -> str:
+    if value_expr == "NULL":
+        return "NULL"
+    return f"CASE WHEN {value_expr} ~ '^[0-9]+$' THEN CAST({value_expr} AS INTEGER) ELSE NULL END"
+
+
+def backfill_master_data_from_requests(db: sqlite3.Connection) -> None:
+    if not is_lakebase_db(db):
+        return
+    db.execute(
+        """
+        INSERT INTO md_domains (domain_id, domain_name)
+        SELECT DISTINCT lead_domain_id, INITCAP(REPLACE(lead_domain_id, '_', ' '))
+        FROM data_product_requests_new
+        WHERE lead_domain_id IS NOT NULL
+          AND lead_domain_id <> ''
+          AND NOT EXISTS (
+            SELECT 1 FROM md_domains d WHERE d.domain_id = data_product_requests_new.lead_domain_id
+          )
+        ON CONFLICT DO NOTHING
+        """
+    )
 
 
 def seed_requests(db: sqlite3.Connection) -> None:
@@ -2198,6 +2474,8 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
                     except Exception as exc:
                         payload["ok"] = False
                         payload["healthError"] = f"{type(exc).__name__}: {exc}"
+                if APP_BACKEND == "lakebase":
+                    payload["ucImport"] = dict(UC_IMPORT_STATUS)
                 self.send_json(payload)
                 return
             if STARTUP_ERROR:
