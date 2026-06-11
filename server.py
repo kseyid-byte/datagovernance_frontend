@@ -20,6 +20,7 @@ DB_PATH = Path(os.getenv("GOVERNANCE_SQLITE_PATH", ROOT / "governance_tool.sqlit
 GOVERNANCE_CATALOG = os.getenv("GOVERNANCE_CATALOG", "").strip()
 GOVERNANCE_SCHEMA = os.getenv("GOVERNANCE_SCHEMA", "").strip()
 LAKEBASE_SCHEMA = os.getenv("GOVERNANCE_LAKEBASE_SCHEMA", "public").strip() or "public"
+STARTUP_ERROR: str | None = None
 IDENTITY_DEBUG = os.getenv("GOVERNANCE_IDENTITY_DEBUG", "").strip().lower() in {"1", "true", "yes"}
 ALLOW_IDENTITY_FALLBACK = os.getenv("GOVERNANCE_ALLOW_IDENTITY_FALLBACK", "").strip().lower() in {"1", "true", "yes"}
 SEED_DEMO_DATA = os.getenv("GOVERNANCE_SEED_DEMO_DATA", "true").strip().lower() in {"1", "true", "yes"}
@@ -1166,6 +1167,22 @@ def log_exception(context: str, exc: Exception) -> None:
     traceback.print_exc(file=sys.stderr)
 
 
+def startup_error_payload() -> dict:
+    return {
+        "error": STARTUP_ERROR or "Backend is not ready",
+        "backend": APP_BACKEND,
+        "database": database_label(),
+    }
+
+
+def database_label() -> str:
+    if APP_BACKEND == "databricks_sql":
+        return f"{GOVERNANCE_CATALOG}.{GOVERNANCE_SCHEMA}"
+    if APP_BACKEND == "lakebase":
+        return f"{os.getenv('PGDATABASE', 'unknown')}/{LAKEBASE_SCHEMA}"
+    return str(DB_PATH)
+
+
 def resolve_user_email(headers, fallback: str = "") -> tuple[str, str]:
     candidates = [(header, headers.get(header)) for header in TRUSTED_IDENTITY_HEADERS]
     if ALLOW_IDENTITY_FALLBACK:
@@ -2026,13 +2043,13 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
         query = parse_qs(parsed.query)
         try:
             if path == "/api/health":
-                if APP_BACKEND == "databricks_sql":
-                    database = f"{GOVERNANCE_CATALOG}.{GOVERNANCE_SCHEMA}"
-                elif APP_BACKEND == "lakebase":
-                    database = f"{os.getenv('PGDATABASE', 'unknown')}/{LAKEBASE_SCHEMA}"
-                else:
-                    database = str(DB_PATH)
-                self.send_json({"ok": True, "backend": APP_BACKEND, "database": database})
+                payload = {"ok": STARTUP_ERROR is None, "backend": APP_BACKEND, "database": database_label()}
+                if STARTUP_ERROR:
+                    payload["startupError"] = STARTUP_ERROR
+                self.send_json(payload)
+                return
+            if STARTUP_ERROR:
+                self.send_json(startup_error_payload(), status=503)
                 return
             if path == "/api/session":
                 log_identity_headers(self.headers)
@@ -2072,6 +2089,9 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
     def do_POST(self) -> None:
         path = urlparse(self.path).path
         try:
+            if STARTUP_ERROR:
+                self.send_json(startup_error_payload(), status=503)
+                return
             length = int(self.headers.get("Content-Length", "0"))
             if length > MAX_REQUEST_BODY_BYTES:
                 self.send_json({"error": "Request body is too large"}, status=413)
@@ -2141,6 +2161,9 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
     def do_DELETE(self) -> None:
         path = urlparse(self.path).path
         try:
+            if STARTUP_ERROR:
+                self.send_json(startup_error_payload(), status=503)
+                return
             if path.startswith("/api/master-data/"):
                 parts = path.split("/")
                 if len(parts) != 5:
@@ -2176,22 +2199,29 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
 
 
 def main() -> None:
+    global STARTUP_ERROR
     print("Starting Governance Input Tool", flush=True)
     print(f"Startup argv: {sys.argv}", flush=True)
     print(f"Startup DATABRICKS_APP_PORT: {os.getenv('DATABRICKS_APP_PORT', '')}", flush=True)
     print(f"Startup PORT: {os.getenv('PORT', '')}", flush=True)
-    init_db()
+    try:
+        init_db()
+    except Exception as exc:
+        STARTUP_ERROR = f"{type(exc).__name__}: {exc}"
+        log_exception("startup database initialization", exc)
     port_value = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1].isdigit() else os.getenv("DATABRICKS_APP_PORT", os.getenv("PORT", "8502"))
     port = int(port_value)
     server = ThreadingHTTPServer(("0.0.0.0", port), GovernanceHandler)
     print(f"Serving Governance Input Tool on http://localhost:{port}", flush=True)
     print(f"Backend: {APP_BACKEND}", flush=True)
+    if STARTUP_ERROR:
+        print(f"Startup backend error: {STARTUP_ERROR}", flush=True)
     if APP_BACKEND == "sqlite":
         print(f"SQLite database: {DB_PATH}", flush=True)
     elif APP_BACKEND == "databricks_sql":
         print(f"Databricks schema: {GOVERNANCE_CATALOG}.{GOVERNANCE_SCHEMA}", flush=True)
     elif APP_BACKEND == "lakebase":
-        print(f"Lakebase database: {os.getenv('PGDATABASE', 'unknown')}/{LAKEBASE_SCHEMA}", flush=True)
+        print(f"Lakebase database: {database_label()}", flush=True)
     server.serve_forever()
 
 

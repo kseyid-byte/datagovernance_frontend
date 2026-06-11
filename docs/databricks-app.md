@@ -22,16 +22,7 @@ GOVERNANCE_LAKEBASE_SCHEMA: public
 GOVERNANCE_SEED_DEMO_DATA: "false"
 ```
 
-The expected Lakebase app resource is:
-
-```yaml
-resources:
-  - name: governance-lakebase
-    database:
-      databaseName: governance_app_dev
-      instanceName: governance-lakebase-dev
-      permission: CAN_CONNECT_AND_CREATE
-```
+Attach the Lakebase database as an app resource in the Databricks App UI. Use resource key `governance-lakebase`, database `governance_app_dev`, instance/project `governance-lakebase-dev`, and permission `Can connect and create`.
 
 For local testing, keep using SQLite by running:
 
@@ -56,7 +47,7 @@ GOVERNANCE_BACKEND=sqlite DATABRICKS_APP_PORT=8502 python3 app.py
    - Branch: `codex/lakebase-backend`
    - Source path: repository root
 
-When the database resource is attached, Databricks injects standard PostgreSQL environment variables for the first database resource, including `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, and `PGSSLMODE`. The app uses those values through `psycopg`.
+When the database resource is attached, Databricks injects standard PostgreSQL environment variables for the first database resource, including `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, and `PGSSLMODE`. The app uses those values through `psycopg`. If those variables are missing or the database connection fails, the app now starts and exposes the error through `/api/health` instead of exiting.
 
 ## Startup behavior
 

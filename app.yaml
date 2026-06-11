@@ -10,10 +10,3 @@ env:
     value: public
   - name: GOVERNANCE_SEED_DEMO_DATA
     value: "false"
-
-resources:
-  - name: governance-lakebase
-    database:
-      databaseName: governance_app_dev
-      instanceName: governance-lakebase-dev
-      permission: CAN_CONNECT_AND_CREATE
