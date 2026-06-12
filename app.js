@@ -277,19 +277,17 @@ function filteredProducts() {
   const search = document.getElementById("searchInput")?.value.trim().toLowerCase() || "";
   return products.filter((product) => {
     const matchesStage = !activeStageId || product.stageId === activeStageId;
-    const haystack = [
-      product.title,
-      product.domain,
-      product.businessUnit,
-      product.owner,
-      product.platform,
-      product.priority,
-      product.status,
-    ]
-      .join(" ")
-      .toLowerCase();
+    const haystack = productSearchText(product);
     return matchesStage && (!search || haystack.includes(search)) && matchesColumnFilters(product);
   });
+}
+
+function productSearchText(product) {
+  return Object.entries(product || {})
+    .filter(([, value]) => value !== null && value !== undefined)
+    .map(([, value]) => String(value))
+    .join(" ")
+    .toLowerCase();
 }
 
 function matchesColumnFilters(product) {
