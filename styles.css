@@ -11,6 +11,7 @@
   --blue: #1d4ed8;
   --danger: #b91c1c;
   --warning: #b45309;
+  --current: #f97316;
   --success: #15803d;
   --shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
 }
@@ -903,9 +904,14 @@ textarea {
 }
 
 .workflow-stage-rail {
+  position: sticky;
+  z-index: 20;
+  top: 12px;
   display: grid;
   grid-template-columns: repeat(8, minmax(0, 1fr));
   gap: 8px;
+  padding: 0 0 10px;
+  background: var(--panel);
 }
 
 .workflow-stage-button {
@@ -933,8 +939,9 @@ textarea {
 }
 
 .workflow-stage-button.current {
-  border-color: rgba(15, 118, 110, 0.5);
-  background: #f0fdfa;
+  border-color: rgba(249, 115, 22, 0.72);
+  background: #fff7ed;
+  box-shadow: 0 8px 18px rgba(249, 115, 22, 0.12);
 }
 
 .workflow-stage-button.locked {
@@ -949,12 +956,16 @@ textarea {
   background: #dbe3ef;
 }
 
-.workflow-stage-button.complete .workflow-stage-indicator,
-.workflow-stage-button.current .workflow-stage-indicator {
+.workflow-stage-button.complete:not(.current) .workflow-stage-indicator {
   background: linear-gradient(90deg, #22c55e, #0f766e);
 }
 
+.workflow-stage-button.current .workflow-stage-indicator {
+  background: linear-gradient(90deg, #fb923c, var(--current));
+}
+
 .stage-panel {
+  scroll-margin-top: 110px;
   display: grid;
   gap: 14px;
   padding: 14px;
@@ -964,8 +975,8 @@ textarea {
 }
 
 .stage-panel.current {
-  border-color: rgba(15, 118, 110, 0.4);
-  box-shadow: inset 4px 0 0 var(--accent);
+  border-color: rgba(249, 115, 22, 0.55);
+  box-shadow: inset 4px 0 0 var(--current);
 }
 
 .stage-panel.complete {
