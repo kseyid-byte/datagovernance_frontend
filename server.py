@@ -841,14 +841,14 @@ def request_select_sql() -> str:
     return """
         SELECT
           r.*,
-          d.domain_name,
+          COALESCE(d.domain_name, NULLIF(r.lead_domain_id, ''), 'Unassigned') AS domain_name,
           bu.business_unit_name,
-          pt.product_type_name,
-          p.platform_name,
-          pr.priority_name,
-          s.stage_name,
+          COALESCE(pt.product_type_name, NULLIF(r.product_type_id, ''), 'Unassigned') AS product_type_name,
+          COALESCE(p.platform_name, NULLIF(r.target_platform_id, ''), 'Unassigned') AS platform_name,
+          COALESCE(pr.priority_name, NULLIF(r.priority_id, ''), 'Unassigned') AS priority_name,
+          COALESCE(s.stage_name, NULLIF(r.current_stage_id, ''), 'Unassigned') AS stage_name,
           s.stage_number,
-          st.status_name,
+          COALESCE(st.status_name, NULLIF(r.status_id, ''), 'Unassigned') AS status_name,
           scope.scope_name,
           sub.subdomain_name,
           sub.domain_id AS subdomain_domain_id,
@@ -870,13 +870,13 @@ def request_select_sql() -> str:
             r.created_at
           ) AS current_stage_entered_at
         FROM data_product_requests_new r
-        JOIN md_domains d ON d.domain_id = r.lead_domain_id
+        LEFT JOIN md_domains d ON d.domain_id = r.lead_domain_id
         LEFT JOIN md_business_units bu ON bu.business_unit_id = r.business_unit_id
-        JOIN md_product_types pt ON pt.product_type_id = r.product_type_id
-        JOIN md_platforms p ON p.platform_id = r.target_platform_id
-        JOIN md_priorities pr ON pr.priority_id = r.priority_id
-        JOIN md_stages s ON s.stage_id = r.current_stage_id
-        JOIN md_statuses st ON st.status_id = r.status_id
+        LEFT JOIN md_product_types pt ON pt.product_type_id = r.product_type_id
+        LEFT JOIN md_platforms p ON p.platform_id = r.target_platform_id
+        LEFT JOIN md_priorities pr ON pr.priority_id = r.priority_id
+        LEFT JOIN md_stages s ON s.stage_id = r.current_stage_id
+        LEFT JOIN md_statuses st ON st.status_id = r.status_id
         LEFT JOIN md_scope_options scope ON scope.scope_id = r.scope_id
         LEFT JOIN md_subdomains sub ON sub.subdomain_id = r.lead_subdomain_id
         LEFT JOIN md_users ddo ON ddo.user_id = r.data_domain_owner_user_id
@@ -1258,6 +1258,8 @@ def parse_timestamp(value: str) -> datetime:
 
 def serialize_request(row: dict) -> dict:
     current_stage_entered_at = effective_stage_entered_at(row)
+    stage_id = row["current_stage_id"] or ""
+    status_id = row["status_id"] or ""
     delivery_lead = row["delivery_lead"] or ""
     delivery_lead_name = row["delivery_lead_name"] or delivery_lead
     return {
@@ -1265,8 +1267,8 @@ def serialize_request(row: dict) -> dict:
         "requestId": row["request_id"],
         "title": row["title"],
         "description": row["description"] or "",
-        "domain": row["domain_name"],
-        "domainId": row["lead_domain_id"],
+        "domain": row["domain_name"] or "Unassigned",
+        "domainId": row["lead_domain_id"] or "",
         "businessUnit": row["business_unit_name"] or "",
         "type": row["product_type_name"],
         "platform": row["platform_name"],
@@ -1283,13 +1285,13 @@ def serialize_request(row: dict) -> dict:
         "jiraEpicId": row["jira_epic_id"] or "",
         "jiraLink": row["jira_link"] or "",
         "additionalComments": row["additional_comments"] or "",
-        "stage": row["stage_name"],
-        "stageId": row["current_stage_id"],
-        "stageNumber": row["stage_number"],
+        "stage": row["stage_name"] or stage_id or "Unassigned",
+        "stageId": stage_id,
+        "stageNumber": row["stage_number"] or 0,
         "currentStageEnteredAt": format_date(current_stage_entered_at),
         "daysInStage": days_since(current_stage_entered_at),
-        "status": row["status_name"],
-        "statusId": row["status_id"],
+        "status": row["status_name"] or status_id or "Unassigned",
+        "statusId": status_id,
         "statusChangeReason": row["status_change_reason"] or "",
         "lastStatusChangeDate": row["last_status_change_date"] or "",
         "lastStatusChangedBy": row["last_status_changed_by"] or "",
