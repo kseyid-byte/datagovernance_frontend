@@ -920,7 +920,7 @@ def get_workflow(db: LakebaseConnection, request_id: str) -> dict:
     previous_complete = True
     for stage in stages:
         requirements = get_stage_requirements(db, request_id, stage["stage_id"])
-        complete = all(is_answer_complete(item) for item in requirements)
+        complete = all(not item["is_required"] or is_answer_complete(item) for item in requirements)
         workflow_stages.append(
             {
                 "stageId": stage["stage_id"],
