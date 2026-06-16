@@ -69,16 +69,6 @@ mapped AS (
     NULLIF(COALESCE(src->>'data_product_owner', src->>'data_owner'), '') AS data_product_owner,
     NULLIF(src->>'initiative', '') AS initiative,
     CASE
-      WHEN COALESCE(src->>'product_classification_id', '') IN ('data_product', 'bi_dashboard_product', 'ai_lynx_product', 'semantic_layer', 'source_data_asset') THEN src->>'product_classification_id'
-      WHEN LOWER(COALESCE(src->>'type', src->>'data_product_name', src->>'title', src->>'data_object', '')) LIKE '%dashboard%' THEN 'bi_dashboard_product'
-      WHEN LOWER(COALESCE(src->>'type', src->>'data_product_name', src->>'title', src->>'data_object', '')) LIKE '%report%' THEN 'bi_dashboard_product'
-      WHEN LOWER(COALESCE(src->>'type', src->>'data_product_name', src->>'title', src->>'data_object', '')) LIKE '%semantic%' THEN 'semantic_layer'
-      WHEN LOWER(COALESCE(src->>'type', src->>'data_product_name', src->>'title', src->>'data_object', '')) LIKE '%lynx%' THEN 'ai_lynx_product'
-      WHEN LOWER(COALESCE(src->>'type', src->>'data_product_name', src->>'title', src->>'data_object', '')) LIKE '%ai%' THEN 'ai_lynx_product'
-      WHEN LOWER(COALESCE(src->>'type', src->>'data_product_name', src->>'title', src->>'data_object', '')) LIKE '%source%' THEN 'source_data_asset'
-      ELSE 'data_product'
-    END AS product_classification_id,
-    CASE
       WHEN COALESCE(src->>'expected_output_id', '') IN ('table_dataset', 'dashboard', 'api', 'semantic_layer', 'lynx_knowledge_base', 'ai_search_feature', 'report', 'other') THEN src->>'expected_output_id'
       WHEN LOWER(COALESCE(src->>'type', src->>'data_product_name', src->>'title', src->>'data_object', '')) LIKE '%dashboard%' THEN 'dashboard'
       WHEN LOWER(COALESCE(src->>'type', src->>'data_product_name', src->>'title', src->>'data_object', '')) LIKE '%api%' THEN 'api'
@@ -141,7 +131,6 @@ INSERT INTO data_product_requests_new (
   requester_email,
   data_product_owner,
   initiative,
-  product_classification_id,
   expected_output_id,
   business_value,
   expected_date,
@@ -182,7 +171,6 @@ SELECT
   requester_email,
   data_product_owner,
   initiative,
-  product_classification_id,
   expected_output_id,
   business_value,
   expected_date,
@@ -222,7 +210,6 @@ ON CONFLICT (request_id) DO UPDATE SET
   requester_email = EXCLUDED.requester_email,
   data_product_owner = EXCLUDED.data_product_owner,
   initiative = EXCLUDED.initiative,
-  product_classification_id = EXCLUDED.product_classification_id,
   expected_output_id = EXCLUDED.expected_output_id,
   expected_date = EXCLUDED.expected_date,
   delivery_date = EXCLUDED.delivery_date,

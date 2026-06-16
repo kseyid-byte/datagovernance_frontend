@@ -17,14 +17,6 @@ INSERT INTO md_product_types VALUES
   ('mixed', 'Mixed')
 ON CONFLICT DO NOTHING;
 
-INSERT INTO md_product_classifications VALUES
-  ('data_product', 'Data Product'),
-  ('bi_dashboard_product', 'BI / Dashboard Product'),
-  ('ai_lynx_product', 'AI / Lynx Product'),
-  ('semantic_layer', 'Semantic Layer'),
-  ('source_data_asset', 'Source Data Asset')
-ON CONFLICT DO NOTHING;
-
 INSERT INTO md_expected_outputs VALUES
   ('table_dataset', 'Table / dataset'),
   ('dashboard', 'Dashboard'),
@@ -114,22 +106,21 @@ ON CONFLICT DO NOTHING;
 
 INSERT INTO md_stage_requirements VALUES
   ('intake_data_product_owner', 'intake', 'data_product_owner', 'Data Product Owner', 'text', NULL, 'Name the person accountable for the product end-to-end.', 1, 1),
-  ('intake_product_classification_id', 'intake', 'product_classification_id', 'Product classification', 'select', 'productClassifications', 'Classify the governed product type.', 2, 1),
-  ('intake_expected_output_id', 'intake', 'expected_output_id', 'Expected output', 'select', 'expectedOutputs', 'Select the expected product output.', 3, 1),
-  ('intake_product_type_id', 'intake', 'product_type_id', 'Product type', 'select', 'productTypes', 'Select the data product type.', 4, 1),
-  ('intake_target_platform_id', 'intake', 'target_platform_id', 'Target platform', 'select', 'platforms', 'Select the target delivery platform.', 5, 1),
-  ('intake_priority_id', 'intake', 'priority_id', 'Priority', 'select', 'priorities', 'Select the request priority.', 6, 1),
-  ('intake_scope_id', 'intake', 'scope_id', 'Scope', 'select', 'scopeOptions', 'Select the regional scope.', 7, 1),
-  ('intake_business_decision', 'intake', 'business_decision', 'Business decision supported', 'textarea', NULL, 'Describe the decision this product supports.', 8, 1),
-  ('intake_business_value', 'intake', 'business_value', 'Business value', 'textarea', NULL, 'Describe why this matters and the value expected.', 9, 1),
-  ('intake_expected_date', 'intake', 'expected_date', 'Expected date', 'date', NULL, 'When is this product expected?', 10, 1),
-  ('intake_additional_comments', 'intake', 'additional_comments', 'Additional comments', 'textarea', NULL, 'Any extra context for triage.', 11, 1),
+  ('intake_expected_output_id', 'intake', 'expected_output_id', 'Expected output', 'select', 'expectedOutputs', 'Select the expected product output.', 2, 1),
+  ('intake_product_type_id', 'intake', 'product_type_id', 'Product type', 'select', 'productTypes', 'Select the data product type.', 3, 1),
+  ('intake_target_platform_id', 'intake', 'target_platform_id', 'Target platform', 'select', 'platforms', 'Select the target delivery platform.', 4, 1),
+  ('intake_priority_id', 'intake', 'priority_id', 'Priority', 'select', 'priorities', 'Select the request priority.', 5, 1),
+  ('intake_scope_id', 'intake', 'scope_id', 'Scope', 'select', 'scopeOptions', 'Select the regional scope.', 6, 1),
+  ('intake_business_decision', 'intake', 'business_decision', 'Business decision supported', 'textarea', NULL, 'Describe the decision this product supports.', 7, 1),
+  ('intake_business_value', 'intake', 'business_value', 'Business value', 'textarea', NULL, 'Describe why this matters and the value expected.', 8, 1),
+  ('intake_expected_date', 'intake', 'expected_date', 'Expected date', 'date', NULL, 'When is this product expected?', 9, 1),
+  ('intake_additional_comments', 'intake', 'additional_comments', 'Additional comments', 'textarea', NULL, 'Any extra context for triage.', 10, 1),
   ('reuse_domain_lead_domain_id', 'reuse_domain', 'lead_domain_id', 'Lead domain', 'select', 'domains', 'Select the accountable data domain.', 1, 1),
   ('reuse_domain_lead_subdomain_id', 'reuse_domain', 'lead_subdomain_id', 'Lead subdomain', 'select', 'subdomains', 'Assign the accountable subdomain for the selected domain.', 2, 1),
   ('reuse_domain_delivery_lead', 'reuse_domain', 'delivery_lead', 'Delivery lead', 'select', 'domainDeliveryLeads', 'Select from the same master data as Domain Delivery Lead.', 3, 1),
   ('reuse_domain_data_domain_owner_user_id', 'reuse_domain', 'data_domain_owner_user_id', 'Data Domain Owner', 'select', 'dataDomainOwners', 'Select from master data.', 4, 1),
   ('reuse_domain_domain_delivery_lead_user_id', 'reuse_domain', 'domain_delivery_lead_user_id', 'Domain Delivery Lead', 'select', 'domainDeliveryLeads', 'Select from master data.', 5, 1),
-  ('reuse_domain_lynx_pm_user_id', 'reuse_domain', 'lynx_pm_user_id', 'Lynx PM input', 'select', 'lynxPms', 'Select the Lynx PM accountable for input.', 6, 1),
+  ('reuse_domain_lynx_pm_user_id', 'reuse_domain', 'lynx_pm_user_id', 'Lynx PM input', 'select', 'lynxPms', 'Select the Lynx PM accountable for input when the product is moving to Lynx.', 6, 0),
   ('ownership_delivery_date', 'ownership', 'delivery_date', 'Delivery date', 'date', NULL, 'Set the planned delivery date.', 1, 1),
   ('ownership_effort', 'ownership', 'effort', 'Effort', 'number', NULL, 'Estimate delivery effort in days.', 2, 1),
   ('ownership_jira_epic_id', 'ownership', 'jira_epic_id', 'Jira epic ID', 'text', NULL, 'Add the Jira epic or delivery tracking ID.', 3, 1),

@@ -27,7 +27,7 @@ const minimumLoadingMs = 450;
 const tableFilters = {};
 const stageDescriptions = {
   intake: "Capture request, requester, priority, scope, and expected date.",
-  reuse_domain: "Assign lead domain, subdomain, delivery lead, data domain owner, domain delivery lead, and Lynx PM.",
+  reuse_domain: "Assign lead domain, subdomain, delivery lead, data domain owner, domain delivery lead, and optional Lynx PM.",
   ownership: "Estimate delivery date, effort, Jira tracking, reuse check, and source system outputs.",
   requirements: "Confirm KPIs, definitions, grain, sources, CDEs, and DQ rules.",
   architecture_review: "Confirm design, security, and tooling are approved.",
@@ -39,7 +39,6 @@ const masterCollections = [
   { key: "domains", label: "Domains", fields: [{ name: "name", label: "Name" }] },
   { key: "businessUnits", label: "Business units", fields: [{ name: "name", label: "Name" }] },
   { key: "productTypes", label: "Product types", fields: [{ name: "name", label: "Name" }] },
-  { key: "productClassifications", label: "Product classifications", fields: [{ name: "name", label: "Name" }] },
   { key: "expectedOutputs", label: "Expected outputs", fields: [{ name: "name", label: "Name" }] },
   { key: "platforms", label: "Platforms", fields: [{ name: "name", label: "Name" }] },
   { key: "priorities", label: "Priorities", fields: [{ name: "name", label: "Name" }] },
@@ -595,8 +594,7 @@ function renderWorkflow() {
     <strong>${escapeHtml(product.title)}</strong>
     <span>${escapeHtml(product.id)} | ${escapeHtml(product.domain)} | ${escapeHtml(product.businessUnit || "No BU")}</span>
     <span>${escapeHtml(product.type)} | ${escapeHtml(product.platform)} | ${escapeHtml(product.priority)}</span>
-    <span>Classification: ${escapeHtml(product.productClassification || "Not set")}</span>
-    <span>Expected output: ${escapeHtml(product.expectedOutput || "Not set")}</span>
+      <span>Expected output: ${escapeHtml(product.expectedOutput || "Not set")}</span>
     <span>Data Product Owner: ${escapeHtml(product.dataProductOwner || "Not set")}</span>
     <span>Requester: ${escapeHtml(product.requester)} (${escapeHtml(product.requesterEmail)})</span>
     <span>Initiative: ${escapeHtml(product.initiative || "Not set")}</span>

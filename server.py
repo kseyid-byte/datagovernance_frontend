@@ -56,12 +56,6 @@ MASTER_DATA_CONFIG = {
         "name": "product_type_name",
         "fields": [("name", "product_type_name")],
     },
-    "productClassifications": {
-        "table": "md_product_classifications",
-        "id": "product_classification_id",
-        "name": "product_classification_name",
-        "fields": [("name", "product_classification_name")],
-    },
     "expectedOutputs": {
         "table": "md_expected_outputs",
         "id": "expected_output_id",
@@ -284,7 +278,6 @@ REQUIRED_TABLES = [
     "md_domains",
     "md_business_units",
     "md_product_types",
-    "md_product_classifications",
     "md_expected_outputs",
     "md_platforms",
     "md_priorities",
@@ -314,7 +307,6 @@ def validate_database_ready() -> None:
                 "domains",
                 "businessUnits",
                 "productTypes",
-                "productClassifications",
                 "expectedOutputs",
                 "platforms",
                 "priorities",
@@ -569,7 +561,6 @@ def get_master_data(db: LakebaseConnection) -> dict:
         "domains": dict_rows(db.execute("SELECT domain_id AS id, domain_name AS name FROM md_domains ORDER BY domain_name").fetchall()),
         "businessUnits": dict_rows(db.execute("SELECT business_unit_id AS id, business_unit_name AS name FROM md_business_units ORDER BY business_unit_name").fetchall()),
         "productTypes": dict_rows(db.execute("SELECT product_type_id AS id, product_type_name AS name FROM md_product_types ORDER BY product_type_name").fetchall()),
-        "productClassifications": dict_rows(db.execute("SELECT product_classification_id AS id, product_classification_name AS name FROM md_product_classifications ORDER BY product_classification_name").fetchall()),
         "expectedOutputs": dict_rows(db.execute("SELECT expected_output_id AS id, expected_output_name AS name FROM md_expected_outputs ORDER BY expected_output_name").fetchall()),
         "platforms": dict_rows(db.execute("SELECT platform_id AS id, platform_name AS name FROM md_platforms ORDER BY platform_name").fetchall()),
         "priorities": dict_rows(db.execute("SELECT priority_id AS id, priority_name AS name FROM md_priorities ORDER BY priority_name").fetchall()),
@@ -619,7 +610,6 @@ def master_data_counts(db: LakebaseConnection) -> dict:
         "domains": "md_domains",
         "businessUnits": "md_business_units",
         "productTypes": "md_product_types",
-        "productClassifications": "md_product_classifications",
         "expectedOutputs": "md_expected_outputs",
         "platforms": "md_platforms",
         "priorities": "md_priorities",
@@ -834,8 +824,6 @@ def validate_requirement_answer(db: LakebaseConnection, requirement: dict, value
         return ensure_reference(db, "md_domains", "domain_id", text_value, requirement["label"])
     if master_type == "productTypes":
         return ensure_reference(db, "md_product_types", "product_type_id", text_value, requirement["label"])
-    if master_type == "productClassifications":
-        return ensure_reference(db, "md_product_classifications", "product_classification_id", text_value, requirement["label"])
     if master_type == "expectedOutputs":
         return ensure_reference(db, "md_expected_outputs", "expected_output_id", text_value, requirement["label"])
     if master_type == "platforms":
@@ -868,7 +856,6 @@ def request_select_sql() -> str:
           COALESCE(d.domain_name, NULLIF(r.lead_domain_id, ''), 'Unassigned') AS domain_name,
           bu.business_unit_name,
           COALESCE(pt.product_type_name, NULLIF(r.product_type_id, ''), 'Unassigned') AS product_type_name,
-          pc.product_classification_name,
           eo.expected_output_name,
           COALESCE(p.platform_name, NULLIF(r.target_platform_id, ''), 'Unassigned') AS platform_name,
           COALESCE(pr.priority_name, NULLIF(r.priority_id, ''), 'Unassigned') AS priority_name,
@@ -899,7 +886,6 @@ def request_select_sql() -> str:
         LEFT JOIN md_domains d ON d.domain_id = r.lead_domain_id
         LEFT JOIN md_business_units bu ON bu.business_unit_id = r.business_unit_id
         LEFT JOIN md_product_types pt ON pt.product_type_id = r.product_type_id
-        LEFT JOIN md_product_classifications pc ON pc.product_classification_id = r.product_classification_id
         LEFT JOIN md_expected_outputs eo ON eo.expected_output_id = r.expected_output_id
         LEFT JOIN md_platforms p ON p.platform_id = r.target_platform_id
         LEFT JOIN md_priorities pr ON pr.priority_id = r.priority_id
@@ -979,7 +965,6 @@ def get_stage_requirements(db: LakebaseConnection, request_id: str, stage_id: st
           CASE req.requirement_key
             WHEN 'product_type_id' THEN r.product_type_id
             WHEN 'data_product_owner' THEN COALESCE(r.data_product_owner, '')
-            WHEN 'product_classification_id' THEN COALESCE(r.product_classification_id, '')
             WHEN 'expected_output_id' THEN COALESCE(r.expected_output_id, '')
             WHEN 'target_platform_id' THEN r.target_platform_id
             WHEN 'priority_id' THEN r.priority_id
@@ -1128,7 +1113,6 @@ def format_answer_for_log(db: LakebaseConnection, requirement: dict, value: obje
     lookup = {
         "domains": ("md_domains", "domain_id", "domain_name"),
         "productTypes": ("md_product_types", "product_type_id", "product_type_name"),
-        "productClassifications": ("md_product_classifications", "product_classification_id", "product_classification_name"),
         "expectedOutputs": ("md_expected_outputs", "expected_output_id", "expected_output_name"),
         "platforms": ("md_platforms", "platform_id", "platform_name"),
         "priorities": ("md_priorities", "priority_id", "priority_name"),
@@ -1205,7 +1189,6 @@ def update_structured_field(db: LakebaseConnection, request_id: str, key: str, v
     field_map = {
         "product_type_id": "product_type_id",
         "data_product_owner": "data_product_owner",
-        "product_classification_id": "product_classification_id",
         "expected_output_id": "expected_output_id",
         "target_platform_id": "target_platform_id",
         "priority_id": "priority_id",
@@ -1237,8 +1220,6 @@ def update_structured_field(db: LakebaseConnection, request_id: str, key: str, v
         stored_value = ensure_reference(db, "md_product_types", "product_type_id", value, "product type")
     elif key == "data_product_owner":
         stored_value = clean_text(value, "Data Product Owner") or None
-    elif key == "product_classification_id":
-        stored_value = ensure_reference(db, "md_product_classifications", "product_classification_id", value, "product classification", required=False) or None
     elif key == "expected_output_id":
         stored_value = ensure_reference(db, "md_expected_outputs", "expected_output_id", value, "expected output", required=False) or None
     elif key == "target_platform_id":
@@ -1413,8 +1394,6 @@ def serialize_request(row: dict) -> dict:
         "businessUnit": row["business_unit_name"] or "",
         "type": row["product_type_name"],
         "dataProductOwner": row["data_product_owner"] or "",
-        "productClassification": row["product_classification_name"] or "",
-        "productClassificationId": row["product_classification_id"] or "",
         "expectedOutput": row["expected_output_name"] or "",
         "expectedOutputId": row["expected_output_id"] or "",
         "businessValue": row["business_value"] or "",

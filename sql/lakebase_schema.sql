@@ -17,11 +17,6 @@ CREATE TABLE IF NOT EXISTS md_product_types (
   product_type_name TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS md_product_classifications (
-  product_classification_id TEXT PRIMARY KEY,
-  product_classification_name TEXT NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS md_expected_outputs (
   expected_output_id TEXT PRIMARY KEY,
   expected_output_name TEXT NOT NULL
@@ -94,7 +89,6 @@ CREATE TABLE IF NOT EXISTS data_product_requests_new (
   requester_email TEXT,
   data_product_owner TEXT,
   initiative TEXT,
-  product_classification_id TEXT,
   expected_output_id TEXT,
   business_value TEXT,
   expected_date TEXT,

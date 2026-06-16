@@ -63,7 +63,7 @@ For a clean v2 start, run `sql/v2/README.md` end to end first. The Databricks ap
 - All authenticated Syngenta users can open the app and submit requests.
 - Admin access is granted by `GOVERNANCE_ADMIN_EMAILS` or by `md_users.role_key` in the admin role set.
 - Intake captures the requester, business unit, initiative, expected date, region scope, and business context.
-- Domain Ownership captures lead domain, lead subdomain, delivery lead, Data Domain Owner, Domain Delivery Lead, and Lynx PM input.
+- Domain Ownership captures lead domain, lead subdomain, delivery lead, Data Domain Owner, Domain Delivery Lead, and optional Lynx PM input.
 - Estimation captures delivery date, effort, Jira epic ID, Jira link, existing product reuse confirmation, and source system outputs.
 - Later stages capture requirement confirmation, architecture review, build/validation status, publish confirmation, and operate confirmation.
 - A stage can be submitted only when previous stages are complete.

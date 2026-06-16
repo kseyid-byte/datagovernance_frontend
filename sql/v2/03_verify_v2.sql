@@ -5,7 +5,6 @@ SET search_path TO governance_app_v2;
 SELECT 'md_domains' AS table_name, COUNT(*) AS row_count FROM md_domains
 UNION ALL SELECT 'md_business_units', COUNT(*) FROM md_business_units
 UNION ALL SELECT 'md_product_types', COUNT(*) FROM md_product_types
-UNION ALL SELECT 'md_product_classifications', COUNT(*) FROM md_product_classifications
 UNION ALL SELECT 'md_expected_outputs', COUNT(*) FROM md_expected_outputs
 UNION ALL SELECT 'md_platforms', COUNT(*) FROM md_platforms
 UNION ALL SELECT 'md_priorities', COUNT(*) FROM md_priorities
