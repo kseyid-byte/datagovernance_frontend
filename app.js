@@ -275,11 +275,14 @@ function setView(view) {
 }
 
 function filteredProducts() {
-  const search = document.getElementById("searchInput")?.value.trim().toLowerCase() || "";
+  const searchTerms = (document.getElementById("searchInput")?.value.trim().toLowerCase() || "")
+    .split(/\s+/)
+    .filter(Boolean);
   return products.filter((product) => {
     const matchesStage = !activeStageId || product.stageId === activeStageId;
     const haystack = productSearchText(product);
-    return matchesStage && (!search || haystack.includes(search)) && matchesColumnFilters(product);
+    const matchesSearch = !searchTerms.length || searchTerms.every((term) => haystack.includes(term));
+    return matchesStage && matchesSearch && matchesColumnFilters(product);
   });
 }
 

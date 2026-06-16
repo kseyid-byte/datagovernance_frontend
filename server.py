@@ -872,6 +872,88 @@ def request_select_sql() -> str:
           ddl.display_name AS domain_delivery_lead_name,
           lpm.display_name AS lynx_pm_name,
           bs.build_status_name,
+          CONCAT_WS(
+            ' ',
+            r.request_id,
+            r.request_number,
+            r.title,
+            r.description,
+            r.data_product_owner,
+            r.initiative,
+            r.business_value,
+            r.expected_date,
+            r.delivery_date,
+            CAST(r.effort AS TEXT),
+            r.jira_epic_id,
+            r.jira_link,
+            r.alation_link,
+            r.additional_comments,
+            r.status_change_reason,
+            r.last_status_change_date,
+            r.last_status_changed_by,
+            r.note,
+            r.product_type_id,
+            r.target_platform_id,
+            r.priority_id,
+            r.lead_domain_id,
+            r.business_unit_id,
+            r.scope_id,
+            r.requester_name,
+            r.requester_email,
+            r.delivery_lead,
+            r.current_stage_id,
+            r.status_id,
+            r.lead_subdomain_id,
+            r.data_domain_owner_user_id,
+            r.source_system_id,
+            r.domain_delivery_lead_user_id,
+            r.lynx_pm_user_id,
+            r.build_status_id,
+            d.domain_name,
+            bu.business_unit_name,
+            pt.product_type_name,
+            eo.expected_output_name,
+            p.platform_name,
+            pr.priority_name,
+            s.stage_name,
+            st.status_name,
+            scope.scope_name,
+            sub.subdomain_name,
+            ddo.display_name,
+            ddo.email,
+            src.source_system_name,
+            dle.display_name,
+            dle.email,
+            ddl.display_name,
+            ddl.email,
+            lpm.display_name,
+            lpm.email,
+            bs.build_status_name,
+            (
+              SELECT STRING_AGG(CONCAT_WS(' ', req.label, req.requirement_key, ans.answer_value), ' ')
+              FROM request_stage_answers ans
+              LEFT JOIN md_stage_requirements req ON req.requirement_id = ans.requirement_id
+              WHERE ans.request_id = r.request_id
+            ),
+            (
+              SELECT STRING_AGG(
+                CONCAT_WS(
+                  ' ',
+                  t.event_type,
+                  t.event_label,
+                  t.event_detail,
+                  t.created_by,
+                  t.stage_id,
+                  t.from_stage_id,
+                  t.to_stage_id,
+                  t.status_id
+                ),
+                ' '
+              )
+              FROM request_timeline t
+              WHERE t.request_id = r.request_id
+            )
+          ) AS search_text,
           COALESCE(
             (
               SELECT MAX(t.created_at)
@@ -1431,6 +1513,7 @@ def serialize_request(row: dict) -> dict:
         "buildStatus": row["build_status_name"] or "",
         "owner": row["data_domain_owner_name"] or row["requester_name"] or "Unassigned",
         "note": row["note"] or "",
+        "searchText": row["search_text"] or "",
     }
 
 
