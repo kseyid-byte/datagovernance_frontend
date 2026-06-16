@@ -5,7 +5,7 @@ command:
 
 env:
   - name: GOVERNANCE_LAKEBASE_SCHEMA
-    value: governance_app
+    value: governance_app_v2
   - name: GOVERNANCE_ADMIN_EMAILS
     value: kerem.seyid@syngenta.com,harish.krishnamoorthy@syngenta.com
   - name: DATABRICKS_POSTGRES_ENDPOINT

@@ -23,7 +23,7 @@ Required app configuration:
 ```yaml
 env:
   - name: GOVERNANCE_LAKEBASE_SCHEMA
-    value: governance_app
+    value: governance_app_v2
   - name: GOVERNANCE_ADMIN_EMAILS
     value: kerem.seyid@syngenta.com,harish.krishnamoorthy@syngenta.com
   - name: DATABRICKS_POSTGRES_ENDPOINT
@@ -39,10 +39,13 @@ Use these files with the production migration process before deploying the app:
 - `sql/lakebase_schema.sql` - Lakebase table DDL.
 - `sql/seed_master_data.sql` - required baseline master data and workflow requirements.
 - `sql/migrations/` - incremental migrations for existing Lakebase databases.
+- `sql/v2/` - clean v2 schema bootstrap, legacy import, current-schema copy, and verification scripts.
 
 Run both with the application schema selected as the PostgreSQL `search_path`.
 
 The app does not apply migrations at runtime. Existing Lakebase databases must be migrated before deploying code that introduces new tables, columns, or required master data.
+
+For a clean v2 start, run `sql/v2/README.md` end to end first. The Databricks app is configured to use `governance_app_v2`.
 
 ## Files
 
