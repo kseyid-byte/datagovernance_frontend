@@ -1034,24 +1034,53 @@ def save_workflow_answers(db: LakebaseConnection, request_id: str, payload: dict
         raise PermissionError("Previous stages must be completed before this stage can be submitted")
 
     requirement_by_id = {item["requirement_id"]: item for item in stage["requirements"]}
+    previous_answers = {
+        item["requirement_id"]: str(item.get("answer_value") or "").strip()
+        for item in stage["requirements"]
+    }
     answers = payload.get("answers", {})
+    changes: list[dict] = []
     for requirement_id, answer_value in answers.items():
         requirement = requirement_by_id.get(requirement_id)
         if not requirement:
             continue
         clean_value = validate_requirement_answer(db, requirement, answer_value)
+        old_value = previous_answers.get(requirement_id, "")
         upsert_stage_answer(db, request_id, requirement_id, clean_value, timestamp)
         update_structured_field(db, request_id, requirement["requirement_key"], clean_value)
+        if normalize_log_value(old_value) != normalize_log_value(clean_value):
+            changes.append(
+                {
+                    "label": requirement["label"],
+                    "input_type": requirement["input_type"],
+                    "master_data_type": requirement["master_data_type"],
+                    "old": old_value,
+                    "new": clean_value,
+                }
+            )
 
     reconcile_domain_subdomain(db, request_id)
 
     status_id = payload.get("statusId")
     if status_id:
         status_id = ensure_reference(db, "md_statuses", "status_id", status_id, "status")
+        current_status = workflow["request"].get("statusId")
         db.execute("UPDATE data_product_requests_new SET status_id = ? WHERE request_id = ?", (status_id, request_id))
-        add_timeline(db, request_id, "status_changed", "Status updated", f"Status changed to {status_id}.", stage_id=stage_id, status_id=status_id, created_by=actor, created_at=timestamp)
+        if status_id != current_status:
+            add_timeline(
+                db,
+                request_id,
+                "status_changed",
+                "Status updated",
+                f"Status changed from {format_status_for_log(db, current_status)} to {format_status_for_log(db, status_id)}.",
+                stage_id=stage_id,
+                status_id=status_id,
+                created_by=actor,
+                created_at=timestamp,
+            )
 
-    add_timeline(db, request_id, "answers_saved", f"{stage['name']} saved", "Stage information was saved.", stage_id=stage_id, status_id=status_id, created_by=actor, created_at=timestamp)
+    event_detail = describe_workflow_changes(db, changes)
+    add_timeline(db, request_id, "answers_saved", f"{stage['name']} saved", event_detail, stage_id=stage_id, status_id=status_id, created_by=actor, created_at=timestamp)
     advanced = advance_if_complete(db, request_id, stage_id, timestamp)
     db.execute("UPDATE data_product_requests_new SET updated_at = ? WHERE request_id = ?", (timestamp, request_id))
     result = get_workflow(db, request_id)
@@ -1069,6 +1098,70 @@ def upsert_stage_answer(db: LakebaseConnection, request_id: str, requirement_id:
         """,
         (str(uuid.uuid4()), request_id, requirement_id, value, timestamp),
     )
+
+
+def normalize_log_value(value: object) -> str:
+    return str(value or "").strip()
+
+
+def describe_workflow_changes(db: LakebaseConnection, changes: list[dict]) -> str:
+    if not changes:
+        return "Submitted with no field changes."
+    parts = []
+    for change in changes[:6]:
+        old_value = format_answer_for_log(db, change, change["old"])
+        new_value = format_answer_for_log(db, change, change["new"])
+        parts.append(f"{change['label']}: {old_value} -> {new_value}")
+    if len(changes) > 6:
+        parts.append(f"{len(changes) - 6} more field(s) changed")
+    return "; ".join(parts)
+
+
+def format_answer_for_log(db: LakebaseConnection, requirement: dict, value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return "empty"
+    if requirement.get("input_type") == "checkbox":
+        return "checked" if text == "true" else "unchecked"
+
+    master_type = requirement.get("master_data_type")
+    lookup = {
+        "domains": ("md_domains", "domain_id", "domain_name"),
+        "productTypes": ("md_product_types", "product_type_id", "product_type_name"),
+        "productClassifications": ("md_product_classifications", "product_classification_id", "product_classification_name"),
+        "expectedOutputs": ("md_expected_outputs", "expected_output_id", "expected_output_name"),
+        "platforms": ("md_platforms", "platform_id", "platform_name"),
+        "priorities": ("md_priorities", "priority_id", "priority_name"),
+        "scopeOptions": ("md_scope_options", "scope_id", "scope_name"),
+        "subdomains": ("md_subdomains", "subdomain_id", "subdomain_name"),
+        "sourceSystems": ("md_source_systems", "source_system_id", "source_system_name"),
+        "buildStatuses": ("md_build_statuses", "build_status_id", "build_status_name"),
+        "dataDomainOwners": ("md_users", "user_id", "display_name"),
+        "domainDeliveryLeads": ("md_users", "user_id", "display_name"),
+        "lynxPms": ("md_users", "user_id", "display_name"),
+    }.get(master_type)
+    if lookup:
+        table, id_column, name_column = lookup
+        row = db.execute(f"SELECT {name_column} AS name FROM {table} WHERE {id_column} = ?", (text,)).fetchone()
+        if row and row["name"]:
+            text = row["name"]
+
+    return truncate_for_log(text)
+
+
+def format_status_for_log(db: LakebaseConnection, status_id: object) -> str:
+    text = str(status_id or "").strip()
+    if not text:
+        return "empty"
+    row = db.execute("SELECT status_name FROM md_statuses WHERE status_id = ?", (text,)).fetchone()
+    return row["status_name"] if row and row["status_name"] else truncate_for_log(text)
+
+
+def truncate_for_log(value: str, limit: int = 90) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= limit:
+        return text
+    return f"{text[: limit - 3]}..."
 
 
 def save_request_status(db: LakebaseConnection, request_id: str, payload: dict) -> dict:

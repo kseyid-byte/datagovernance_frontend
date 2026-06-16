@@ -30,6 +30,19 @@ def main() -> None:
 
     assert server.clean_email("Kerem.Seyid@Syngenta.com") == "kerem.seyid@syngenta.com"
     assert server.slug_id("Commercial Domain") == "commercial_domain"
+    assert server.describe_workflow_changes(
+        None,
+        [
+            {
+                "label": "Business value",
+                "input_type": "textarea",
+                "master_data_type": None,
+                "old": "",
+                "new": "Faster commercial decision making",
+            }
+        ],
+    ) == "Business value: empty -> Faster commercial decision making"
+    assert server.describe_workflow_changes(None, []) == "Submitted with no field changes."
 
     try:
         server.clean_http_url("javascript:alert(1)", "Jira link")
