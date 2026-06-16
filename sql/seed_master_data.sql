@@ -17,6 +17,25 @@ INSERT INTO md_product_types VALUES
   ('mixed', 'Mixed')
 ON CONFLICT DO NOTHING;
 
+INSERT INTO md_product_classifications VALUES
+  ('data_product', 'Data Product'),
+  ('bi_dashboard_product', 'BI / Dashboard Product'),
+  ('ai_lynx_product', 'AI / Lynx Product'),
+  ('semantic_layer', 'Semantic Layer'),
+  ('source_data_asset', 'Source Data Asset')
+ON CONFLICT DO NOTHING;
+
+INSERT INTO md_expected_outputs VALUES
+  ('table_dataset', 'Table / dataset'),
+  ('dashboard', 'Dashboard'),
+  ('api', 'API'),
+  ('semantic_layer', 'Semantic layer'),
+  ('lynx_knowledge_base', 'Lynx knowledge base'),
+  ('ai_search_feature', 'AI / search feature'),
+  ('report', 'Report'),
+  ('other', 'Other')
+ON CONFLICT DO NOTHING;
+
 INSERT INTO md_platforms VALUES
   ('databricks', 'Databricks'),
   ('lynx', 'Lynx'),
@@ -94,13 +113,17 @@ INSERT INTO md_build_statuses VALUES
 ON CONFLICT DO NOTHING;
 
 INSERT INTO md_stage_requirements VALUES
-  ('intake_product_type_id', 'intake', 'product_type_id', 'Product type', 'select', 'productTypes', 'Select the data product type.', 1, 1),
-  ('intake_target_platform_id', 'intake', 'target_platform_id', 'Target platform', 'select', 'platforms', 'Select the target delivery platform.', 2, 1),
-  ('intake_priority_id', 'intake', 'priority_id', 'Priority', 'select', 'priorities', 'Select the request priority.', 3, 1),
-  ('intake_scope_id', 'intake', 'scope_id', 'Scope', 'select', 'scopeOptions', 'Select the regional scope.', 4, 1),
-  ('intake_business_decision', 'intake', 'business_decision', 'Business decision supported', 'textarea', NULL, 'Describe the decision this product supports.', 5, 1),
-  ('intake_expected_date', 'intake', 'expected_date', 'Expected date', 'date', NULL, 'When is this product expected?', 6, 1),
-  ('intake_additional_comments', 'intake', 'additional_comments', 'Additional comments', 'textarea', NULL, 'Any extra context for triage.', 7, 1),
+  ('intake_data_product_owner', 'intake', 'data_product_owner', 'Data Product Owner', 'text', NULL, 'Name the person accountable for the product end-to-end.', 1, 1),
+  ('intake_product_classification_id', 'intake', 'product_classification_id', 'Product classification', 'select', 'productClassifications', 'Classify the governed product type.', 2, 1),
+  ('intake_expected_output_id', 'intake', 'expected_output_id', 'Expected output', 'select', 'expectedOutputs', 'Select the expected product output.', 3, 1),
+  ('intake_product_type_id', 'intake', 'product_type_id', 'Product type', 'select', 'productTypes', 'Select the data product type.', 4, 1),
+  ('intake_target_platform_id', 'intake', 'target_platform_id', 'Target platform', 'select', 'platforms', 'Select the target delivery platform.', 5, 1),
+  ('intake_priority_id', 'intake', 'priority_id', 'Priority', 'select', 'priorities', 'Select the request priority.', 6, 1),
+  ('intake_scope_id', 'intake', 'scope_id', 'Scope', 'select', 'scopeOptions', 'Select the regional scope.', 7, 1),
+  ('intake_business_decision', 'intake', 'business_decision', 'Business decision supported', 'textarea', NULL, 'Describe the decision this product supports.', 8, 1),
+  ('intake_business_value', 'intake', 'business_value', 'Business value', 'textarea', NULL, 'Describe why this matters and the value expected.', 9, 1),
+  ('intake_expected_date', 'intake', 'expected_date', 'Expected date', 'date', NULL, 'When is this product expected?', 10, 1),
+  ('intake_additional_comments', 'intake', 'additional_comments', 'Additional comments', 'textarea', NULL, 'Any extra context for triage.', 11, 1),
   ('reuse_domain_lead_domain_id', 'reuse_domain', 'lead_domain_id', 'Lead domain', 'select', 'domains', 'Select the accountable data domain.', 1, 1),
   ('reuse_domain_lead_subdomain_id', 'reuse_domain', 'lead_subdomain_id', 'Lead subdomain', 'select', 'subdomains', 'Assign the accountable subdomain for the selected domain.', 2, 1),
   ('reuse_domain_delivery_lead', 'reuse_domain', 'delivery_lead', 'Delivery lead', 'select', 'domainDeliveryLeads', 'Select from the same master data as Domain Delivery Lead.', 3, 1),
@@ -124,8 +147,9 @@ INSERT INTO md_stage_requirements VALUES
   ('architecture_review_tooling_confirmed', 'architecture_review', 'tooling_confirmed', 'Databricks / Lynx tooling confirmed', 'checkbox', NULL, 'Confirm target tooling is approved.', 3, 1),
   ('build_validate_build_status_id', 'build_validate', 'build_status_id', 'Build status', 'select', 'buildStatuses', 'Select the current build status.', 1, 1),
   ('build_validate_build_evidence', 'build_validate', 'build_evidence', 'Build / test notes', 'textarea', NULL, 'Add evidence, blockers, UAT notes, or test summary.', 2, 1),
-  ('publish_alation_documented', 'publish', 'alation_documented', 'Documented in Alation', 'checkbox', NULL, 'Confirm the product is documented in Alation.', 1, 1),
-  ('publish_release_notes', 'publish', 'release_notes', 'Release notes', 'textarea', NULL, 'Add release notes or support context.', 2, 1),
+  ('publish_alation_link', 'publish', 'alation_link', 'Alation link', 'text', NULL, 'Add the Alation catalog or documentation link.', 1, 1),
+  ('publish_alation_documented', 'publish', 'alation_documented', 'Documented in Alation', 'checkbox', NULL, 'Confirm the product is documented in Alation.', 2, 1),
+  ('publish_release_notes', 'publish', 'release_notes', 'Release notes', 'textarea', NULL, 'Add release notes or support context.', 3, 1),
   ('operate_support_model_confirmed', 'operate', 'support_model_confirmed', 'Support model confirmed', 'checkbox', NULL, 'Confirm owner, refresh, and support model.', 1, 1),
   ('operate_review_cycle_confirmed', 'operate', 'review_cycle_confirmed', 'Review cycle confirmed', 'checkbox', NULL, 'Confirm value and quality review cadence.', 2, 1)
 ON CONFLICT DO NOTHING;

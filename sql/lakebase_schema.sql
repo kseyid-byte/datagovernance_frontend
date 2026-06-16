@@ -17,6 +17,16 @@ CREATE TABLE IF NOT EXISTS md_product_types (
   product_type_name TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS md_product_classifications (
+  product_classification_id TEXT PRIMARY KEY,
+  product_classification_name TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS md_expected_outputs (
+  expected_output_id TEXT PRIMARY KEY,
+  expected_output_name TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS md_platforms (
   platform_id TEXT PRIMARY KEY,
   platform_name TEXT NOT NULL
@@ -82,13 +92,18 @@ CREATE TABLE IF NOT EXISTS data_product_requests_new (
   scope_id TEXT,
   requester_name TEXT,
   requester_email TEXT,
+  data_product_owner TEXT,
   initiative TEXT,
+  product_classification_id TEXT,
+  expected_output_id TEXT,
+  business_value TEXT,
   expected_date TEXT,
   delivery_date TEXT,
   delivery_lead TEXT,
   effort INTEGER,
   jira_epic_id TEXT,
   jira_link TEXT,
+  alation_link TEXT,
   additional_comments TEXT,
   current_stage_id TEXT NOT NULL,
   status_id TEXT NOT NULL,

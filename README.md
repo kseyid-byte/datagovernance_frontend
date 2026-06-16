@@ -38,8 +38,11 @@ Use these files with the production migration process before deploying the app:
 
 - `sql/lakebase_schema.sql` - Lakebase table DDL.
 - `sql/seed_master_data.sql` - required baseline master data and workflow requirements.
+- `sql/migrations/` - incremental migrations for existing Lakebase databases.
 
 Run both with the application schema selected as the PostgreSQL `search_path`.
+
+The app does not apply migrations at runtime. Existing Lakebase databases must be migrated before deploying code that introduces new tables, columns, or required master data.
 
 ## Files
 

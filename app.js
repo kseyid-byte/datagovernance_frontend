@@ -39,6 +39,8 @@ const masterCollections = [
   { key: "domains", label: "Domains", fields: [{ name: "name", label: "Name" }] },
   { key: "businessUnits", label: "Business units", fields: [{ name: "name", label: "Name" }] },
   { key: "productTypes", label: "Product types", fields: [{ name: "name", label: "Name" }] },
+  { key: "productClassifications", label: "Product classifications", fields: [{ name: "name", label: "Name" }] },
+  { key: "expectedOutputs", label: "Expected outputs", fields: [{ name: "name", label: "Name" }] },
   { key: "platforms", label: "Platforms", fields: [{ name: "name", label: "Name" }] },
   { key: "priorities", label: "Priorities", fields: [{ name: "name", label: "Name" }] },
   { key: "statuses", label: "Statuses", fields: [{ name: "name", label: "Name" }] },
@@ -581,16 +583,24 @@ function renderWorkflowError(error) {
 function renderWorkflow() {
   const product = currentWorkflow.request;
   const jiraHref = safeExternalUrl(product.jiraLink);
-  const jiraLabel = escapeHtml(product.jiraEpicId || product.jiraLink || "Not set");
+  const jiraLabel = escapeHtml(product.jiraEpicId || "Jira Link");
   const jiraMarkup = jiraHref
     ? `<a href="${escapeHtml(jiraHref)}" target="_blank" rel="noreferrer noopener">${jiraLabel}</a>`
-    : jiraLabel;
+    : escapeHtml(product.jiraEpicId || product.jiraLink || "Not set");
+  const alationHref = safeExternalUrl(product.alationLink);
+  const alationMarkup = alationHref
+    ? `<a href="${escapeHtml(alationHref)}" target="_blank" rel="noreferrer noopener">Alation Link</a>`
+    : escapeHtml(product.alationLink || "Not set");
   document.getElementById("adminProductCard").innerHTML = `
     <strong>${escapeHtml(product.title)}</strong>
     <span>${escapeHtml(product.id)} | ${escapeHtml(product.domain)} | ${escapeHtml(product.businessUnit || "No BU")}</span>
     <span>${escapeHtml(product.type)} | ${escapeHtml(product.platform)} | ${escapeHtml(product.priority)}</span>
+    <span>Classification: ${escapeHtml(product.productClassification || "Not set")}</span>
+    <span>Expected output: ${escapeHtml(product.expectedOutput || "Not set")}</span>
+    <span>Data Product Owner: ${escapeHtml(product.dataProductOwner || "Not set")}</span>
     <span>Requester: ${escapeHtml(product.requester)} (${escapeHtml(product.requesterEmail)})</span>
     <span>Initiative: ${escapeHtml(product.initiative || "Not set")}</span>
+    <span>Business value: ${escapeHtml(product.businessValue || "Not set")}</span>
     <span>Current stage: ${escapeHtml(product.stage)}</span>
     <label class="admin-status-field">
       Product status
@@ -609,7 +619,8 @@ function renderWorkflow() {
     <span>Delivery date: ${escapeHtml(product.deliveryDate || "Not set")}</span>
     <span>Delivery lead: ${escapeHtml(product.deliveryLead || "Not set")}</span>
     <span>Effort: ${escapeHtml(product.effort ?? "Not set")}</span>
-    <span>Jira: ${jiraMarkup}</span>
+    <span>Jira Link: ${jiraMarkup}</span>
+    <span>Alation Link: ${alationMarkup}</span>
     <span>Last status change: ${escapeHtml(product.lastStatusChangeDate || "Not set")} ${product.lastStatusChangedBy ? `by ${escapeHtml(product.lastStatusChangedBy)}` : ""}</span>
   `;
 
