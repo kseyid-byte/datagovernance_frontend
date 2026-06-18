@@ -776,15 +776,50 @@ button.initiative-product-item:focus-visible {
   font-weight: 800;
 }
 
+.status.new {
+  background: #f1f5f9;
+  color: #334155;
+}
+
+.status.not-started {
+  background: #f8fafc;
+  color: #475569;
+}
+
+.status.in-review {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+
+.status.in-progress {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
 .status.blocked {
   background: #fee2e2;
   color: var(--danger);
+}
+
+.status.on-hold {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.status.completed {
+  background: #ccfbf1;
+  color: #0f766e;
 }
 
 .status.operating,
 .status.ready {
   background: #dcfce7;
   color: var(--success);
+}
+
+.status.ready {
+  background: #e0f2fe;
+  color: #0369a1;
 }
 
 .request-layout {
