@@ -29,7 +29,7 @@ const minimumLoadingMs = 450;
 const tableFilters = {};
 const stageDescriptions = {
   intake: "Capture request, requester, priority, scope, and expected date.",
-  reuse_domain: "Assign lead domain, subdomain, delivery lead, data domain owner, domain delivery lead, and optional Lynx PM.",
+  reuse_domain: "Assign lead domain, subdomain, delivery lead, data domain owner, hub owner, and optional Lynx PM.",
   ownership: "Estimate delivery date, effort, Jira tracking, reuse check, and source system outputs.",
   requirements: "Confirm KPIs, definitions, grain, sources, CDEs, and DQ rules.",
   architecture_review: "Confirm design, security, and tooling are approved.",
@@ -74,7 +74,7 @@ const masterCollections = [
         name: "roleKey",
         label: "Role",
         type: "select",
-        options: ["requester", "admin", "data_domain_owner", "domain_delivery_lead", "lynx_pm"],
+        options: ["requester", "admin", "data_domain_owner", "domain_delivery_lead", "hub_owner", "lynx_pm"],
       },
     ],
   },
@@ -298,9 +298,17 @@ function filteredInitiatives() {
     .split(/\s+/)
     .filter(Boolean);
   return initiatives.filter((initiative) => {
-    const haystack = productSearchText(initiative);
+    const haystack = initiativeSearchText(initiative);
     return !searchTerms.length || searchTerms.every((term) => haystack.includes(term));
   });
+}
+
+function initiativeSearchText(initiative) {
+  const productText = products
+    .filter((product) => product.initiativeRequestId === initiative.requestId)
+    .map((product) => productSearchText(product))
+    .join(" ");
+  return `${productSearchText(initiative)} ${productText}`.toLowerCase();
 }
 
 function productSearchText(product) {
@@ -828,15 +836,29 @@ function stageStatusText(stage) {
   return "Available";
 }
 
+function requirementLabel(requirement) {
+  if (requirement.requirement_key === "domain_delivery_lead_user_id") return "Hub Owner";
+  return requirement.label;
+}
+
+function requirementHelpText(requirement) {
+  if (requirement.requirement_key === "domain_delivery_lead_user_id") {
+    return "Select the hub owner accountable for the hub alignment.";
+  }
+  return requirement.help_text;
+}
+
 function renderRequirement(requirement, canSubmit) {
   const wrapper = document.createElement("label");
   wrapper.className = `requirement-field ${requirement.input_type}`;
   const value = requirement.answer_value || "";
+  const labelText = requirementLabel(requirement);
+  const helpText = requirementHelpText(requirement);
 
-  wrapper.appendChild(document.createTextNode(requirement.label));
+  wrapper.appendChild(document.createTextNode(labelText));
   const help = document.createElement("span");
   help.className = "help";
-  help.textContent = requirement.help_text;
+  help.textContent = helpText;
 
   if (requirement.input_type === "checkbox") {
     wrapper.textContent = "";
@@ -849,7 +871,7 @@ function renderRequirement(requirement, canSubmit) {
     input.checked = value === "true";
     input.disabled = !canSubmit;
     const label = document.createElement("span");
-    label.textContent = requirement.label;
+    label.textContent = labelText;
     row.append(input, label);
     wrapper.append(row, help);
     return wrapper;
@@ -904,6 +926,9 @@ function renderRequirement(requirement, canSubmit) {
 }
 
 function optionsForRequirement(requirement) {
+  if (requirement.requirement_key === "domain_delivery_lead_user_id") {
+    return masterData.hubOwners || [];
+  }
   const options = masterData[requirement.master_data_type] || [];
   if (requirement.master_data_type !== "subdomains") return options;
   const domainId = currentWorkflow?.request?.domainId || "commercial";

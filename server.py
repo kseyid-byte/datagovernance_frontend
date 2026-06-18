@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 ROOT = Path(__file__).resolve().parent
 LAKEBASE_SCHEMA = os.getenv("GOVERNANCE_LAKEBASE_SCHEMA", "governance_app").strip() or "governance_app"
 STARTUP_ERROR: str | None = None
-ADMIN_ROLE_KEYS = {"admin", "data_domain_owner", "domain_delivery_lead", "lynx_pm"}
+ADMIN_ROLE_KEYS = {"admin", "data_domain_owner", "domain_delivery_lead", "hub_owner", "lynx_pm"}
 CONFIGURED_ADMIN_EMAILS = {
     email.strip().lower()
     for email in os.getenv("GOVERNANCE_ADMIN_EMAILS", "").split(",")
@@ -693,6 +693,7 @@ def get_master_data(db: LakebaseConnection) -> dict:
         "buildStatuses": dict_rows(db.execute("SELECT build_status_id AS id, build_status_name AS name FROM md_build_statuses ORDER BY build_status_name").fetchall()),
         "dataDomainOwners": [user for user in users if user["role_key"] == "data_domain_owner"],
         "domainDeliveryLeads": [user for user in users if user["role_key"] == "domain_delivery_lead"],
+        "hubOwners": [user for user in users if user["role_key"] == "hub_owner"],
         "lynxPms": [user for user in users if user["role_key"] == "lynx_pm"],
         "users": users,
     }
@@ -758,7 +759,7 @@ def upsert_master_data_item(db: LakebaseConnection, collection: str, payload: di
                 raise ValueError("user email must use syngenta.com")
         elif payload_key == "roleKey":
             value = slug_id(value or "requester")
-            allowed_roles = {"requester", "admin", "data_domain_owner", "domain_delivery_lead", "lynx_pm"}
+            allowed_roles = {"requester", "admin", "data_domain_owner", "domain_delivery_lead", "hub_owner", "lynx_pm"}
             if value not in allowed_roles:
                 raise ValueError("roleKey is not valid")
         elif payload_key == "type":
@@ -913,6 +914,8 @@ def validate_requirement_answer(db: LakebaseConnection, requirement: dict, value
     key = requirement["requirement_key"]
     input_type = requirement["input_type"]
     master_type = requirement["master_data_type"]
+    if key == "domain_delivery_lead_user_id":
+        master_type = "hubOwners"
 
     if input_type == "checkbox":
         return "true" if value is True or str(value).strip().lower() == "true" else "false"
@@ -950,6 +953,9 @@ def validate_requirement_answer(db: LakebaseConnection, requirement: dict, value
         return ensure_user_role_reference(db, text_value, requirement["label"], "data_domain_owner")
     if master_type == "domainDeliveryLeads":
         return ensure_user_role_reference(db, text_value, requirement["label"], "domain_delivery_lead")
+    if master_type == "hubOwners":
+        label = "Hub Owner" if key == "domain_delivery_lead_user_id" else requirement["label"]
+        return ensure_user_role_reference(db, text_value, label, "hub_owner")
     if master_type == "lynxPms":
         return ensure_user_role_reference(db, text_value, requirement["label"], "lynx_pm")
     if input_type == "textarea":
@@ -1184,6 +1190,7 @@ def get_stage_requirements(db: LakebaseConnection, request_id: str, stage_id: st
             WHEN 'lead_subdomain_id' THEN COALESCE(r.lead_subdomain_id, '')
             WHEN 'delivery_date' THEN COALESCE(r.delivery_date, '')
             WHEN 'delivery_lead' THEN COALESCE(r.delivery_lead, '')
+            WHEN 'domain_delivery_lead_user_id' THEN COALESCE(r.domain_delivery_lead_user_id, '')
             WHEN 'effort' THEN {effort_expr}
             WHEN 'jira_epic_id' THEN COALESCE(r.jira_epic_id, '')
             WHEN 'jira_link' THEN COALESCE(r.jira_link, '')
@@ -1247,9 +1254,9 @@ def save_workflow_answers(db: LakebaseConnection, request_id: str, payload: dict
         if normalize_log_value(old_value) != normalize_log_value(clean_value):
             changes.append(
                 {
-                    "label": requirement["label"],
+                    "label": "Hub Owner" if requirement["requirement_key"] == "domain_delivery_lead_user_id" else requirement["label"],
                     "input_type": requirement["input_type"],
-                    "master_data_type": requirement["master_data_type"],
+                    "master_data_type": "hubOwners" if requirement["requirement_key"] == "domain_delivery_lead_user_id" else requirement["master_data_type"],
                     "old": old_value,
                     "new": clean_value,
                 }
@@ -1335,6 +1342,7 @@ def format_answer_for_log(db: LakebaseConnection, requirement: dict, value: obje
         "buildStatuses": ("md_build_statuses", "build_status_id", "build_status_name"),
         "dataDomainOwners": ("md_users", "user_id", "display_name"),
         "domainDeliveryLeads": ("md_users", "user_id", "display_name"),
+        "hubOwners": ("md_users", "user_id", "display_name"),
         "lynxPms": ("md_users", "user_id", "display_name"),
     }.get(master_type)
     if lookup:
@@ -1508,7 +1516,7 @@ def update_structured_field(db: LakebaseConnection, request_id: str, key: str, v
     elif key == "source_system_id":
         stored_value = ensure_reference(db, "md_source_systems", "source_system_id", value, "source system", required=False) or None
     elif key == "domain_delivery_lead_user_id":
-        stored_value = ensure_user_role_reference(db, value, "Domain Delivery Lead", "domain_delivery_lead", required=False) or None
+        stored_value = ensure_user_role_reference(db, value, "Hub Owner", "hub_owner", required=False) or None
     elif key == "lynx_pm_user_id":
         stored_value = ensure_user_role_reference(db, value, "Lynx PM", "lynx_pm", required=False) or None
     elif key == "build_status_id":
@@ -1697,6 +1705,7 @@ def serialize_request(row: dict) -> dict:
         "dataDomainOwner": row["data_domain_owner_name"] or "",
         "sourceSystem": row["source_system_name"] or "",
         "domainDeliveryLead": row["domain_delivery_lead_name"] or "",
+        "hubOwner": row["domain_delivery_lead_name"] or "",
         "lynxPm": row["lynx_pm_name"] or "",
         "buildStatus": row["build_status_name"] or "",
         "owner": row["data_domain_owner_name"] or row["requester_name"] or "Unassigned",
