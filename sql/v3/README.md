@@ -12,4 +12,4 @@ v3 separates parent initiatives from governed child data products.
 6. Grant the Databricks app service principal access to `governance_app_v3`.
 7. Deploy the app branch configured with `GOVERNANCE_LAKEBASE_SCHEMA=governance_app_v3`.
 
-The v2 import creates parent initiatives only. It does not create `data_products` rows.
+The v2 import treats each v2 product/request row as one parent initiative. It does not create `data_products` rows.
