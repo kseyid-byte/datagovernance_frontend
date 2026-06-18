@@ -635,6 +635,14 @@ button .spinner {
   padding: 10px 11px;
 }
 
+.overview-controls {
+  margin-top: 18px;
+}
+
+.overview-controls .search-wrap input {
+  width: min(100%, 560px);
+}
+
 .table-wrap {
   position: relative;
   overflow-x: auto;
@@ -689,11 +697,69 @@ th {
   outline: none;
 }
 
+.initiative-products-row td {
+  padding: 0 10px 14px;
+  background: #f8fafc;
+}
+
+.initiative-products-list {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+}
+
+.initiative-product-item {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.8fr) minmax(120px, 0.9fr) minmax(90px, 0.6fr) minmax(110px, 0.7fr);
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  color: var(--text);
+  text-align: left;
+}
+
+button.initiative-product-item {
+  cursor: pointer;
+}
+
+button.initiative-product-item:hover,
+button.initiative-product-item:focus-visible {
+  border-color: var(--accent);
+  background: #ecfdf5;
+  outline: none;
+}
+
+.initiative-product-item strong,
+.initiative-product-item small {
+  display: block;
+}
+
+.initiative-product-item small,
+.initiative-products-empty {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.initiative-products-empty {
+  padding: 10px 12px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: white;
+}
+
 .column-filter-row th {
   padding-top: 0;
 }
 
-.column-filter {
+.column-filter,
+.initiative-column-filter {
   min-width: 120px;
   padding: 7px 8px;
   border-radius: 6px;
@@ -1258,6 +1324,10 @@ textarea {
 
   .metric-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .initiative-product-item {
+    grid-template-columns: 1fr;
   }
 }
 

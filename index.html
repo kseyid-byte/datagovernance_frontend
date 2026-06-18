@@ -107,6 +107,12 @@
             <div class="rail" id="processRail" aria-label="Governance process stages"></div>
           </section>
 
+          <section class="overview-controls" aria-label="Overview search">
+            <div class="search-wrap">
+              <input id="searchInput" type="search" placeholder="Search initiatives, products, owners, leads, domains" />
+            </div>
+          </section>
+
           <section class="dashboard-grid">
             <div class="panel large pipeline-panel">
               <div class="panel-header">
@@ -126,6 +132,14 @@
                       <th>Products</th>
                       <th>Status</th>
                     </tr>
+                    <tr class="column-filter-row">
+                      <th><input class="initiative-column-filter" data-column="initiative" aria-label="Filter by initiative" placeholder="Filter initiative" /></th>
+                      <th><input class="initiative-column-filter" data-column="requester" aria-label="Filter by requester" placeholder="Filter requester" /></th>
+                      <th><input class="initiative-column-filter" data-column="priority" aria-label="Filter by priority" placeholder="Filter priority" /></th>
+                      <th><input class="initiative-column-filter" data-column="scope" aria-label="Filter by scope" placeholder="Filter scope" /></th>
+                      <th><input class="initiative-column-filter" data-column="productCount" aria-label="Filter by products" placeholder="Products" /></th>
+                      <th><input class="initiative-column-filter" data-column="status" aria-label="Filter by status" placeholder="Filter status" /></th>
+                    </tr>
                   </thead>
                   <tbody id="initiativeRows"></tbody>
                 </table>
@@ -136,9 +150,6 @@
                 <div>
                   <h2 id="pipelineTitle">Product pipeline</h2>
                   <p id="pipelineSubtitle">All captured products across the governance process.</p>
-                </div>
-                <div class="search-wrap">
-                  <input id="searchInput" type="search" placeholder="Search initiatives, products, owners, leads, domains" />
                 </div>
               </div>
               <div class="table-wrap">

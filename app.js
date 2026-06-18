@@ -27,6 +27,7 @@ const loadingStartedAt = {};
 const loadingClearTimers = {};
 const minimumLoadingMs = 450;
 const tableFilters = {};
+const initiativeTableFilters = {};
 const stageDescriptions = {
   intake: "Capture request, requester, priority, scope, and expected date.",
   reuse_domain: "Assign lead domain, subdomain, delivery lead, data domain owner, hub owner, and optional Lynx PM.",
@@ -286,20 +287,32 @@ function filteredProducts() {
     .split(/\s+/)
     .filter(Boolean);
   return products.filter((product) => {
-    const matchesStage = !activeStageId || product.stageId === activeStageId;
+    const matchesStage = stageMatchesProduct(product, activeStageId);
     const haystack = productSearchText(product);
     const matchesSearch = !searchTerms.length || searchTerms.every((term) => haystack.includes(term));
     return matchesStage && matchesSearch && matchesColumnFilters(product);
   });
 }
 
-function filteredInitiatives() {
-  const searchTerms = (document.getElementById("searchInput")?.value.trim().toLowerCase() || "")
+function overviewSearchTerms() {
+  return (document.getElementById("searchInput")?.value.trim().toLowerCase() || "")
     .split(/\s+/)
     .filter(Boolean);
+}
+
+function matchesOverviewSearch(record, searchTerms) {
+  if (!searchTerms.length) return true;
+  return searchTerms.every((term) => productSearchText(record).includes(term));
+}
+
+function filteredInitiatives() {
+  const searchTerms = overviewSearchTerms();
   return initiatives.filter((initiative) => {
     const haystack = initiativeSearchText(initiative);
-    return !searchTerms.length || searchTerms.every((term) => haystack.includes(term));
+    const matchesSearch = !searchTerms.length || searchTerms.every((term) => haystack.includes(term));
+    const matchesStage =
+      !activeStageId || products.some((product) => product.initiativeRequestId === initiative.requestId && stageMatchesProduct(product, activeStageId));
+    return matchesSearch && matchesStage && matchesInitiativeColumnFilters(initiative);
   });
 }
 
@@ -319,6 +332,13 @@ function productSearchText(product) {
     .toLowerCase();
 }
 
+function stageMatchesProduct(product, stageId) {
+  if (!stageId) return true;
+  if (product.stageId === stageId) return true;
+  const stageName = stageNameById(stageId).toLowerCase();
+  return Boolean(stageName && String(product.stage || "").toLowerCase() === stageName);
+}
+
 function matchesColumnFilters(product) {
   return Object.entries(tableFilters).every(([column, filter]) => {
     if (!filter) return true;
@@ -326,6 +346,14 @@ function matchesColumnFilters(product) {
       column === "daysInStage"
         ? `${product.daysInStage ?? ""} ${formatDaysInStage(product.daysInStage)}`
         : String(product[column] ?? "");
+    return value.toLowerCase().includes(filter);
+  });
+}
+
+function matchesInitiativeColumnFilters(initiative) {
+  return Object.entries(initiativeTableFilters).every(([column, filter]) => {
+    if (!filter) return true;
+    const value = String(initiative[column] ?? "");
     return value.toLowerCase().includes(filter);
   });
 }
@@ -368,7 +396,7 @@ function renderRail() {
   }
 
   stages.forEach((stage) => {
-    const count = dashboard.stageCounts?.[stage.id] ?? products.filter((product) => product.stageId === stage.id).length;
+    const count = dashboard.stageCounts?.[stage.id] ?? products.filter((product) => stageMatchesProduct(product, stage.id)).length;
     const percent = totalProducts ? Math.round((count / totalProducts) * 100) : 0;
     const button = document.createElement("button");
     button.type = "button";
@@ -482,7 +510,61 @@ function renderInitiativeTable() {
       <td><span class="status ${statusClass(initiative.status)}">${escapeHtml(initiative.status || "")}</span></td>
     `;
     rows.appendChild(row);
+    rows.appendChild(renderInitiativeProductRow(initiative));
   });
+}
+
+function initiativeProductsForOverview(initiative) {
+  const searchTerms = overviewSearchTerms();
+  const allForInitiative = products.filter((product) => {
+    const matchesInitiative = product.initiativeRequestId === initiative.requestId;
+    const matchesStage = stageMatchesProduct(product, activeStageId);
+    return matchesInitiative && matchesStage;
+  });
+  if (!searchTerms.length) return allForInitiative;
+
+  const productMatches = allForInitiative.filter((product) => matchesOverviewSearch(product, searchTerms));
+  return productMatches.length ? productMatches : allForInitiative;
+}
+
+function renderInitiativeProductRow(initiative) {
+  const row = document.createElement("tr");
+  row.className = "initiative-products-row";
+  const cell = document.createElement("td");
+  cell.colSpan = 6;
+  const initiativeProducts = initiativeProductsForOverview(initiative);
+  if (!initiativeProducts.length) {
+    cell.innerHTML = `<div class="initiative-products-empty">No governed products${activeStageId ? " in the selected stage" : ""}.</div>`;
+    row.appendChild(cell);
+    return row;
+  }
+
+  const list = document.createElement("div");
+  list.className = "initiative-products-list";
+  initiativeProducts.forEach((product) => {
+    const item = document.createElement(currentUser.canAdmin ? "button" : "div");
+    item.className = `initiative-product-item${currentUser.canAdmin ? " clickable" : ""}`;
+    if (currentUser.canAdmin) {
+      item.type = "button";
+      item.addEventListener("click", (event) => {
+        event.stopPropagation();
+        openProductWorkflow(product.requestId);
+      });
+    }
+    item.innerHTML = `
+      <span>
+        <strong>${escapeHtml(product.title || "Untitled product")}</strong>
+        <small>${escapeHtml(product.id)} | ${escapeHtml(product.domain || "No domain")} | ${escapeHtml(product.owner || "No owner")}</small>
+      </span>
+      <span>${escapeHtml(product.stage || "No stage")}</span>
+      <span><strong>${escapeHtml(formatDaysInStage(product.daysInStage))}</strong></span>
+      <span class="status ${statusClass(product.status)}">${escapeHtml(product.status || "No status")}</span>
+    `;
+    list.appendChild(item);
+  });
+  cell.appendChild(list);
+  row.appendChild(cell);
+  return row;
 }
 
 function formatDaysInStage(days) {
@@ -1350,7 +1432,18 @@ document.getElementById("sidebarToggle").addEventListener("click", () => {
   document.getElementById("sidebarToggle").setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
 });
 
-document.getElementById("searchInput").addEventListener("input", renderTable);
+function renderOverviewTables() {
+  renderInitiativeTable();
+  renderTable();
+}
+
+document.getElementById("searchInput").addEventListener("input", renderOverviewTables);
+document.querySelectorAll(".initiative-column-filter").forEach((input) => {
+  input.addEventListener("input", (event) => {
+    initiativeTableFilters[event.target.dataset.column] = event.target.value.trim().toLowerCase();
+    renderInitiativeTable();
+  });
+});
 document.querySelectorAll(".column-filter").forEach((input) => {
   input.addEventListener("input", (event) => {
     tableFilters[event.target.dataset.column] = event.target.value.trim().toLowerCase();
