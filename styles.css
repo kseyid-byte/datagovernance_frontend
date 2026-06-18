@@ -857,13 +857,8 @@ textarea {
   scrollbar-gutter: stable;
 }
 
-.admin-timeline {
-  max-height: 460px;
-  overflow: auto;
-}
-
 .admin-product-card {
-  margin-top: 16px;
+  margin-top: 10px;
   padding: 14px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -879,6 +874,7 @@ textarea {
   display: grid;
   gap: 8px;
   margin-top: 14px;
+  margin-bottom: 14px;
 }
 
 .product-select-line {
@@ -934,6 +930,63 @@ textarea {
 
 .admin-product-card.is-loading {
   min-height: 86px;
+}
+
+.admin-collapse {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+}
+
+.admin-collapse + .admin-collapse {
+  margin-top: 10px;
+}
+
+.admin-collapse summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  cursor: pointer;
+  font-weight: 900;
+  list-style: none;
+}
+
+.admin-collapse summary::-webkit-details-marker {
+  display: none;
+}
+
+.admin-collapse summary::after {
+  content: "+";
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.admin-collapse[open] summary {
+  border-bottom: 1px solid var(--line);
+}
+
+.admin-collapse[open] summary::after {
+  content: "-";
+}
+
+.admin-collapse > .admin-product-card,
+.admin-collapse > .master-data-form,
+.admin-collapse > .timeline-list {
+  margin: 12px;
+}
+
+.admin-collapse > .master-data-form p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.admin-collapse > .timeline-list {
+  max-height: 360px;
+  overflow: auto;
 }
 
 .admin-status-field {

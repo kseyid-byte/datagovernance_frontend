@@ -269,53 +269,53 @@
                   <select id="adminInitiativeSelect"></select>
                 </label>
                 <div id="adminProductLinks" class="product-link-list"></div>
-                <div class="admin-product-card" id="adminInitiativeCard"></div>
-                <div class="admin-product-card" id="adminProductCard"></div>
-                <form id="adminProductForm" class="master-data-form">
-                  <div>
-                    <h3>Add new product</h3>
+                <details class="admin-collapse">
+                  <summary>Initiative overview</summary>
+                  <div class="admin-product-card" id="adminInitiativeCard"></div>
+                </details>
+                <details class="admin-collapse">
+                  <summary>Product overview</summary>
+                  <div class="admin-product-card" id="adminProductCard"></div>
+                </details>
+                <details class="admin-collapse">
+                  <summary>Add new product</summary>
+                  <form id="adminProductForm" class="master-data-form">
                     <p>Create another governed product under the selected initiative.</p>
-                  </div>
-                  <label>
-                    Product name
-                    <input name="title" required placeholder="Customer sales performance dataset" />
-                  </label>
-                  <label>
-                    Domain
-                    <select name="domain" id="adminProductDomainSelect" required></select>
-                  </label>
-                  <label>
-                    Expected output
-                    <select name="expectedOutput" id="adminProductExpectedOutputSelect"></select>
-                  </label>
-                  <label>
-                    Product type
-                    <select name="productType" id="adminProductTypeSelect"></select>
-                  </label>
-                  <label>
-                    Target platform
-                    <select name="platform" id="adminProductPlatformSelect"></select>
-                  </label>
-                  <label>
-                    Data Product Owner
-                    <input name="dataProductOwner" placeholder="Owner name" />
-                  </label>
-                  <label class="wide">
-                    Product description
-                    <textarea name="description" rows="3"></textarea>
-                  </label>
-                  <button class="primary-action full" type="submit">Add product</button>
-                </form>
-              </div>
-
-              <div class="panel admin-timeline">
-                <div class="panel-header compact">
-                  <div>
-                    <h2>Timeline</h2>
-                    <p>Created, saved, status, and stage movement history.</p>
-                  </div>
-                </div>
-                <div id="timelineList" class="timeline-list"></div>
+                    <label>
+                      Product name
+                      <input name="title" required placeholder="Customer sales performance dataset" />
+                    </label>
+                    <label>
+                      Domain
+                      <select name="domain" id="adminProductDomainSelect" required></select>
+                    </label>
+                    <label>
+                      Expected output
+                      <select name="expectedOutput" id="adminProductExpectedOutputSelect"></select>
+                    </label>
+                    <label>
+                      Product type
+                      <select name="productType" id="adminProductTypeSelect"></select>
+                    </label>
+                    <label>
+                      Target platform
+                      <select name="platform" id="adminProductPlatformSelect"></select>
+                    </label>
+                    <label>
+                      Data Product Owner
+                      <input name="dataProductOwner" placeholder="Owner name" />
+                    </label>
+                    <label class="wide">
+                      Product description
+                      <textarea name="description" rows="3"></textarea>
+                    </label>
+                    <button class="primary-action full" type="submit">Add product</button>
+                  </form>
+                </details>
+                <details class="admin-collapse admin-timeline">
+                  <summary>Timeline</summary>
+                  <div id="timelineList" class="timeline-list"></div>
+                </details>
               </div>
             </div>
 
