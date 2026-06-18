@@ -111,6 +111,29 @@
             <div class="panel large pipeline-panel">
               <div class="panel-header">
                 <div>
+                  <h2>Initiatives</h2>
+                  <p>Requests can exist before governed products are added.</p>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Initiative</th>
+                      <th>Requester</th>
+                      <th>Priority</th>
+                      <th>Scope</th>
+                      <th>Products</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody id="initiativeRows"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="panel large pipeline-panel">
+              <div class="panel-header">
+                <div>
                   <h2 id="pipelineTitle">Product pipeline</h2>
                   <p id="pipelineSubtitle">All captured products across the governance process.</p>
                 </div>
@@ -164,20 +187,20 @@
               <h2>Intake</h2>
               <div class="form-grid">
                 <label>
-                  Product name
-                  <input name="title" required placeholder="Revenue KPI rebuild" />
-                </label>
-                <label>
-                  Domain
-                  <select name="domain" id="domainSelect" required></select>
+                  Initiative
+                  <input name="initiative" required placeholder="Commercial data acceleration" />
                 </label>
                 <label>
                   Business unit
                   <select name="businessUnit" id="businessUnitSelect" required></select>
                 </label>
                 <label>
-                  Initiative
-                  <input name="initiative" placeholder="Commercial data acceleration" />
+                  Priority
+                  <select name="priority" id="prioritySelect" required></select>
+                </label>
+                <label>
+                  Scope
+                  <select name="scope" id="scopeSelect" required></select>
                 </label>
                 <label>
                   Requester
@@ -192,6 +215,10 @@
                   <textarea name="description" rows="4" required placeholder="Which business decision will this product support?"></textarea>
                 </label>
                 <label class="wide">
+                  Business value
+                  <textarea name="businessValue" rows="3" placeholder="Why does this initiative matter?"></textarea>
+                </label>
+                <label class="wide">
                   Expected date
                   <input name="expectedDate" type="date" required />
                 </label>
@@ -201,7 +228,7 @@
             <aside class="summary-panel">
               <h2>Ready to submit</h2>
               <p>
-                The request starts in Intake. Later stages are locked until earlier required information is complete.
+                This creates an initiative. Admins can add one or more governed data products later.
               </p>
               <div class="summary-rule">Requester email must use syngenta.com.</div>
               <button class="primary-action full" type="submit">Submit request</button>
@@ -225,12 +252,47 @@
               <div class="panel">
                 <div class="panel-header">
                   <div>
-                    <h2>Select product</h2>
-                    <p>Only admins should use this screen.</p>
+                    <h2>Select initiative</h2>
+                    <p>Add or select governed products under the initiative.</p>
                   </div>
                 </div>
                 <label>
-                  Product request
+                  Initiative
+                  <select id="adminInitiativeSelect"></select>
+                </label>
+                <form id="adminProductForm" class="master-data-form">
+                  <label>
+                    Product name
+                    <input name="title" required placeholder="Customer sales performance dataset" />
+                  </label>
+                  <label>
+                    Domain
+                    <select name="domain" id="adminProductDomainSelect" required></select>
+                  </label>
+                  <label>
+                    Expected output
+                    <select name="expectedOutput" id="adminProductExpectedOutputSelect"></select>
+                  </label>
+                  <label>
+                    Product type
+                    <select name="productType" id="adminProductTypeSelect"></select>
+                  </label>
+                  <label>
+                    Target platform
+                    <select name="platform" id="adminProductPlatformSelect"></select>
+                  </label>
+                  <label>
+                    Data Product Owner
+                    <input name="dataProductOwner" placeholder="Owner name" />
+                  </label>
+                  <label class="wide">
+                    Product description
+                    <textarea name="description" rows="3"></textarea>
+                  </label>
+                  <button class="primary-action full" type="submit">Add product</button>
+                </form>
+                <label>
+                  Governed product
                   <select id="adminProductSelect"></select>
                 </label>
                 <div class="admin-product-card" id="adminProductCard"></div>

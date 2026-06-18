@@ -1,10 +1,12 @@
 let products = [];
+let initiatives = [];
 let masterData = { domains: [], stages: [] };
-let dashboard = { total: 0, inReview: 0, blocked: 0, live: 0, stageCounts: {}, statusCounts: {} };
+let dashboard = { total: 0, initiatives: 0, inReview: 0, blocked: 0, live: 0, stageCounts: {}, statusCounts: {} };
 let currentWorkflow = null;
 let activeStageId = "";
 let activeView = "overview";
 let activeWorkflowRequestId = "";
+let activeInitiativeId = "";
 let productsLoaded = false;
 let currentUser = {
   email: "",
@@ -220,6 +222,10 @@ async function loadProducts({ showLoading = true } = {}) {
   }
 }
 
+async function loadInitiatives() {
+  initiatives = await apiJson("/api/initiatives");
+}
+
 async function loadMasterData({ showLoading = true } = {}) {
   if (showLoading) setLoading("masterData", true);
   try {
@@ -246,7 +252,7 @@ async function refreshOverviewData() {
   setLoading("dashboard", true);
   setLoading("products", true);
   try {
-    await Promise.all([loadDashboard({ showLoading: false }), loadProducts({ showLoading: false })]);
+    await Promise.all([loadDashboard({ showLoading: false }), loadProducts({ showLoading: false }), loadInitiatives()]);
   } finally {
     setLoading("dashboard", false);
     setLoading("products", false);
@@ -286,6 +292,16 @@ function filteredProducts() {
   });
 }
 
+function filteredInitiatives() {
+  const searchTerms = (document.getElementById("searchInput")?.value.trim().toLowerCase() || "")
+    .split(/\s+/)
+    .filter(Boolean);
+  return initiatives.filter((initiative) => {
+    const haystack = productSearchText(initiative);
+    return !searchTerms.length || searchTerms.every((term) => haystack.includes(term));
+  });
+}
+
 function productSearchText(product) {
   return Object.entries(product || {})
     .filter(([, value]) => value !== null && value !== undefined)
@@ -307,7 +323,7 @@ function matchesColumnFilters(product) {
 
 function renderMetrics() {
   const total = Number.isFinite(dashboard.total) ? dashboard.total : products.length;
-  document.getElementById("metricTotal").textContent = total;
+  document.getElementById("metricTotal").textContent = `${total} / ${dashboard.initiatives ?? initiatives.length}`;
   document.getElementById("metricReview").textContent = Number.isFinite(dashboard.inReview)
     ? dashboard.inReview
     : products.filter((p) => ["in_review", "in_progress"].includes(p.statusId)).length;
@@ -420,6 +436,33 @@ function renderTable() {
   });
 }
 
+function renderInitiativeTable() {
+  const rows = document.getElementById("initiativeRows");
+  if (!rows) return;
+  const visible = filteredInitiatives();
+  rows.innerHTML = "";
+  if (loadingState.products && !productsLoaded) {
+    rows.innerHTML = `<tr class="loading-row"><td colspan="6"><div class="inline-loading">${loadingMarkup("Loading initiatives...")}</div></td></tr>`;
+    return;
+  }
+  if (!visible.length) {
+    rows.innerHTML = `<tr><td colspan="6">No initiatives match the current search.</td></tr>`;
+    return;
+  }
+  visible.forEach((initiative) => {
+    const row = document.createElement("tr");
+    row.innerHTML = `
+      <td><strong>${escapeHtml(initiative.initiative || initiative.title)}</strong><br><small>${escapeHtml(initiative.id)}</small></td>
+      <td>${escapeHtml(initiative.requester || "")}<br><small>${escapeHtml(initiative.requesterEmail || "")}</small></td>
+      <td>${escapeHtml(initiative.priority || "")}</td>
+      <td>${escapeHtml(initiative.scope || "")}</td>
+      <td>${escapeHtml(initiative.productCount ?? 0)}</td>
+      <td><span class="status ${statusClass(initiative.status)}">${escapeHtml(initiative.status || "")}</span></td>
+    `;
+    rows.appendChild(row);
+  });
+}
+
 function formatDaysInStage(days) {
   const numericDays = Number(days);
   if (!Number.isFinite(numericDays)) return "Not set";
@@ -430,6 +473,8 @@ function formatDaysInStage(days) {
 async function openProductWorkflow(requestId) {
   if (!currentUser.canAdmin) return;
   activeWorkflowRequestId = requestId;
+  const product = products.find((item) => item.requestId === requestId);
+  if (product?.initiativeRequestId) activeInitiativeId = product.initiativeRequestId;
   setView("admin");
   scrollAdminToTop();
 }
@@ -451,6 +496,7 @@ function render() {
   renderAccess();
   renderMetrics();
   renderRail();
+  renderInitiativeTable();
   renderTable();
   renderAdminOptions();
   if (activeView === "master-data") renderMasterData();
@@ -489,8 +535,11 @@ function scopeParentName(parentId) {
 }
 
 function populateRequestSelects() {
-  populateSelect("domainSelect", masterData.domains);
   populateSelect("businessUnitSelect", masterData.businessUnits);
+  populateSelect("adminProductDomainSelect", masterData.domains);
+  populateSelect("adminProductExpectedOutputSelect", masterData.expectedOutputs);
+  populateSelect("adminProductTypeSelect", masterData.productTypes);
+  populateSelect("adminProductPlatformSelect", masterData.platforms);
   populateSelect("productTypeSelect", masterData.productTypes);
   populateSelect("platformSelect", masterData.platforms);
   populateSelect("prioritySelect", masterData.priorities, "p2");
@@ -502,16 +551,31 @@ function populateRequestSelects() {
 }
 
 function renderAdminOptions() {
+  const initiativeSelect = document.getElementById("adminInitiativeSelect");
   const select = document.getElementById("adminProductSelect");
-  if (!select) return;
+  if (!select || !initiativeSelect) return;
+  const selectedInitiative = initiativeSelect.value || activeInitiativeId;
   const selected = select.value;
+  initiativeSelect.innerHTML = "";
+  initiatives.forEach((initiative) => {
+    const option = document.createElement("option");
+    option.value = initiative.requestId;
+    option.textContent = `${initiative.id} - ${initiative.initiative || initiative.title} (${initiative.productCount || 0} products)`;
+    initiativeSelect.appendChild(option);
+  });
+  if (selectedInitiative && initiatives.some((initiative) => initiative.requestId === selectedInitiative)) {
+    initiativeSelect.value = selectedInitiative;
+  }
+  activeInitiativeId = initiativeSelect.value || initiatives[0]?.requestId || "";
   select.innerHTML = "";
-  products.forEach((product) => {
+  products
+    .filter((product) => !activeInitiativeId || product.initiativeRequestId === activeInitiativeId)
+    .forEach((product) => {
     const option = document.createElement("option");
     option.value = product.requestId;
     option.textContent = `${product.id} - ${product.title}`;
     select.appendChild(option);
-  });
+    });
   if (selected && products.some((product) => product.requestId === selected)) {
     select.value = selected;
   }
@@ -524,13 +588,18 @@ async function renderAdmin() {
     renderWorkflowLoading("Loading product list...");
     return;
   }
+  activeInitiativeId = document.getElementById("adminInitiativeSelect")?.value || activeInitiativeId || initiatives[0]?.requestId || "";
+  const initiativeProducts = products.filter((product) => product.initiativeRequestId === activeInitiativeId);
   const desiredRequestId =
-    activeWorkflowRequestId && products.some((product) => product.requestId === activeWorkflowRequestId)
+    activeWorkflowRequestId && initiativeProducts.some((product) => product.requestId === activeWorkflowRequestId)
       ? activeWorkflowRequestId
-      : select.value || products[0]?.requestId || "";
+      : select.value || initiativeProducts[0]?.requestId || "";
   if (!desiredRequestId) {
-    document.getElementById("adminProductCard").innerHTML = "No products available.";
-    document.getElementById("workflowFields").innerHTML = "";
+    const selectedInitiative = initiatives.find((initiative) => initiative.requestId === activeInitiativeId);
+    document.getElementById("adminProductCard").innerHTML = selectedInitiative
+      ? `<strong>${escapeHtml(selectedInitiative.initiative)}</strong><span>No governed products have been added yet.</span>`
+      : "No initiatives available.";
+    document.getElementById("workflowFields").innerHTML = `<section class="stage-panel"><div class="empty-state">Add a product under this initiative to start governance.</div></section>`;
     document.getElementById("timelineList").innerHTML = "";
     return;
   }
@@ -1039,11 +1108,12 @@ async function handleSubmit(event) {
   const submitButton = formElement.querySelector('button[type="submit"]');
   const form = new FormData(formElement);
   const payload = {
-    title: form.get("title"),
-    domain: form.get("domain"),
     businessUnit: form.get("businessUnit"),
     initiative: form.get("initiative"),
+    priority: form.get("priority"),
+    scope: form.get("scope"),
     description: form.get("description"),
+    businessValue: form.get("businessValue"),
     requester: form.get("requester"),
     requesterEmail: form.get("requesterEmail"),
     expectedDate: form.get("expectedDate"),
@@ -1053,16 +1123,56 @@ async function handleSubmit(event) {
     setLoading("submittingRequest", true);
     setButtonBusy(submitButton, true, "Submitting...");
     const created = await apiJson("/api/requests", jsonOptions("POST", payload));
-    products = [created, ...products];
+    initiatives = [created, ...initiatives];
     formElement.reset();
     populateRequestSelects();
-    activeStageId = "intake";
+    activeInitiativeId = created.requestId;
     setView("overview");
-    await loadDashboard();
+    await Promise.all([loadDashboard(), loadProducts({ showLoading: false })]);
     render();
   } catch (error) {
     console.error("Failed to create request", error);
     showAppError(error.message || "Request could not be saved.");
+  } finally {
+    setLoading("submittingRequest", false);
+    setButtonBusy(submitButton, false);
+  }
+}
+
+async function handleAdminProductSubmit(event) {
+  event.preventDefault();
+  clearAppError();
+  const formElement = event.currentTarget;
+  const submitButton = formElement.querySelector('button[type="submit"]');
+  const requestId = document.getElementById("adminInitiativeSelect")?.value || activeInitiativeId;
+  if (!requestId) {
+    showAppError("Select an initiative before adding a product.");
+    return;
+  }
+  const form = new FormData(formElement);
+  const payload = {
+    title: form.get("title"),
+    description: form.get("description"),
+    domain: form.get("domain"),
+    expectedOutput: form.get("expectedOutput"),
+    productType: form.get("productType"),
+    platform: form.get("platform"),
+    dataProductOwner: form.get("dataProductOwner"),
+  };
+  try {
+    setLoading("submittingRequest", true);
+    setButtonBusy(submitButton, true, "Adding product...");
+    const created = await apiJson(`/api/requests/${requestId}/products`, jsonOptions("POST", payload));
+    products = [created, ...products];
+    activeWorkflowRequestId = created.requestId;
+    formElement.reset();
+    populateRequestSelects();
+    await Promise.all([loadInitiatives(), loadDashboard({ showLoading: false })]);
+    render();
+    await loadWorkflow(created.requestId);
+  } catch (error) {
+    console.error("Failed to add product", error);
+    showAppError(error.message || "Product could not be added.");
   } finally {
     setLoading("submittingRequest", false);
     setButtonBusy(submitButton, false);
@@ -1121,6 +1231,12 @@ document.querySelectorAll(".column-filter").forEach((input) => {
   });
 });
 document.getElementById("requestForm").addEventListener("submit", handleSubmit);
+document.getElementById("adminProductForm").addEventListener("submit", handleAdminProductSubmit);
+document.getElementById("adminInitiativeSelect").addEventListener("change", (event) => {
+  activeInitiativeId = event.target.value;
+  activeWorkflowRequestId = "";
+  renderAdmin().catch((error) => console.error("Failed to render admin", error));
+});
 document.getElementById("adminProductSelect").addEventListener("change", (event) => {
   loadWorkflow(event.target.value).catch((error) => {
     console.error("Failed to load workflow", error);
@@ -1140,7 +1256,7 @@ async function initializeApp() {
   render();
 
   try {
-    await Promise.all([loadMasterData({ showLoading: false }), loadDashboard({ showLoading: false })]);
+    await Promise.all([loadMasterData({ showLoading: false }), loadDashboard({ showLoading: false }), loadInitiatives()]);
   } finally {
     setLoading("masterData", false);
     setLoading("dashboard", false);

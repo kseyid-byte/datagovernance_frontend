@@ -5,7 +5,7 @@ Browser-native Databricks application for capturing and tracking governed data p
 ## Scope
 
 - Overview dashboard and product pipeline table.
-- New request intake.
+- New initiative request intake with optional governed products added later.
 - Admin workflow screen with stage requirements and automatic stage movement.
 - Master-data maintenance for domains, subdomains, users, statuses, source systems, regions, and delivery metadata.
 - Timeline capture for request creation, stage saves, status changes, and automatic movement.
@@ -23,7 +23,7 @@ Required app configuration:
 ```yaml
 env:
   - name: GOVERNANCE_LAKEBASE_SCHEMA
-    value: governance_app_v2
+    value: governance_app_v3
   - name: GOVERNANCE_ADMIN_EMAILS
     value: kerem.seyid@syngenta.com,harish.krishnamoorthy@syngenta.com
   - name: DATABRICKS_POSTGRES_ENDPOINT
@@ -39,13 +39,13 @@ Use these files with the production migration process before deploying the app:
 - `sql/lakebase_schema.sql` - Lakebase table DDL.
 - `sql/seed_master_data.sql` - required baseline master data and workflow requirements.
 - `sql/migrations/` - incremental migrations for existing Lakebase databases.
-- `sql/v2/` - clean v2 schema bootstrap, legacy import, current-schema copy, and verification scripts.
+- `sql/v3/` - clean v3 initiative/product schema bootstrap, v2 initiative import, and verification scripts.
 
 Run both with the application schema selected as the PostgreSQL `search_path`.
 
 The app does not apply migrations at runtime. Existing Lakebase databases must be migrated before deploying code that introduces new tables, columns, or required master data.
 
-For a clean v2 start, run `sql/v2/README.md` end to end first. The Databricks app is configured to use `governance_app_v2`.
+For a clean v3 start, run `sql/v3/README.md` end to end first. The Databricks app is configured to use `governance_app_v3`.
 
 ## Files
 
@@ -63,7 +63,8 @@ For a clean v2 start, run `sql/v2/README.md` end to end first. The Databricks ap
 - All authenticated Syngenta users can open the app and submit requests.
 - Admin access is granted by `GOVERNANCE_ADMIN_EMAILS` or by `md_users.role_key` in the admin role set.
 - Intake captures the requester, business unit, initiative, expected date, region scope, and business context.
-- Domain Ownership captures lead domain, lead subdomain, delivery lead, Data Domain Owner, Domain Delivery Lead, and optional Lynx PM input.
+- Admins add one or more governed products under an initiative.
+- Product Domain Ownership captures lead domain, lead subdomain, delivery lead, Data Domain Owner, Domain Delivery Lead, and optional Lynx PM input.
 - Estimation captures delivery date, effort, Jira epic ID, Jira link, existing product reuse confirmation, and source system outputs.
 - Later stages capture requirement confirmation, architecture review, build/validation status, publish confirmation, and operate confirmation.
 - A stage can be submitted only when previous stages are complete.
