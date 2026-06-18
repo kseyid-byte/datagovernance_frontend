@@ -6,6 +6,7 @@ SELECT 'governance_requests' AS table_name, COUNT(*) AS row_count FROM governanc
 UNION ALL SELECT 'data_products', COUNT(*) FROM data_products
 UNION ALL SELECT 'product_stage_answers', COUNT(*) FROM product_stage_answers
 UNION ALL SELECT 'governance_timeline', COUNT(*) FROM governance_timeline
+UNION ALL SELECT 'notification_outbox', COUNT(*) FROM notification_outbox
 UNION ALL SELECT 'md_stages', COUNT(*) FROM md_stages
 UNION ALL SELECT 'md_stage_requirements', COUNT(*) FROM md_stage_requirements
 ORDER BY table_name;

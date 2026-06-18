@@ -8,5 +8,7 @@ env:
     value: governance_app_v3
   - name: GOVERNANCE_ADMIN_EMAILS
     value: kerem.seyid@syngenta.com,harish.krishnamoorthy@syngenta.com
+  - name: GOVERNANCE_NOTIFICATION_TEST_RECIPIENT
+    value: kerem.seyid@syngenta.com
   - name: DATABRICKS_POSTGRES_ENDPOINT
     valueFrom: governance-lakebase

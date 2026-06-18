@@ -168,6 +168,23 @@ CREATE TABLE IF NOT EXISTS governance_timeline (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS notification_outbox (
+  notification_id TEXT PRIMARY KEY,
+  timeline_id TEXT REFERENCES governance_timeline(timeline_id),
+  entity_type TEXT NOT NULL,
+  request_id TEXT,
+  data_product_id TEXT,
+  event_type TEXT NOT NULL,
+  recipient_email TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  body TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT,
+  created_at TEXT NOT NULL,
+  sent_at TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_governance_requests_status ON governance_requests(status_id);
 CREATE INDEX IF NOT EXISTS idx_governance_requests_created ON governance_requests(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_data_products_request ON data_products(request_id);
@@ -177,3 +194,4 @@ CREATE INDEX IF NOT EXISTS idx_data_products_created ON data_products(created_at
 CREATE INDEX IF NOT EXISTS idx_stage_answers_product ON product_stage_answers(data_product_id);
 CREATE INDEX IF NOT EXISTS idx_timeline_request_created ON governance_timeline(request_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_timeline_product_created ON governance_timeline(data_product_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notification_outbox_status_created ON notification_outbox(status, created_at);

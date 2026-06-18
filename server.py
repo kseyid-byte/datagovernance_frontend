@@ -28,6 +28,8 @@ MAX_REQUEST_BODY_BYTES = 1_000_000
 MAX_TEXT_LENGTH = 500
 MAX_TEXTAREA_LENGTH = 4000
 MAX_URL_LENGTH = 2048
+NOTIFICATION_EVENT_TYPES = {"status_changed", "stage_advanced", "completed"}
+TEST_NOTIFICATION_RECIPIENT = os.getenv("GOVERNANCE_NOTIFICATION_TEST_RECIPIENT", "kerem.seyid@syngenta.com").strip().lower()
 TRUSTED_IDENTITY_HEADERS = [
     "X-Forwarded-Email",
     "X-Forwarded-Preferred-Username",
@@ -293,6 +295,7 @@ REQUIRED_TABLES = [
     "data_products",
     "product_stage_answers",
     "governance_timeline",
+    "notification_outbox",
 ]
 
 
@@ -1377,7 +1380,7 @@ def save_request_status(db: LakebaseConnection, request_id: str, payload: dict) 
     if not status_id:
         raise ValueError("statusId is required")
     status_id = ensure_reference(db, "md_statuses", "status_id", status_id, "status")
-    current = db.execute("SELECT request_id, current_stage_id FROM data_products WHERE data_product_id = ?", (request_id,)).fetchone()
+    current = db.execute("SELECT request_id, current_stage_id, status_id FROM data_products WHERE data_product_id = ?", (request_id,)).fetchone()
     if not current:
         raise ValueError("request not found")
     db.execute(
@@ -1392,19 +1395,20 @@ def save_request_status(db: LakebaseConnection, request_id: str, payload: dict) 
         """,
         (status_id, reason, timestamp, changed_by, timestamp, request_id),
     )
-    add_timeline(
-        db,
-        "product",
-        current["request_id"],
-        request_id,
-        "status_changed",
-        "Status updated",
-        f"Status changed to {status_id}." + (f" Reason: {reason}" if reason else ""),
-        stage_id=current["current_stage_id"],
-        status_id=status_id,
-        created_by=changed_by,
-        created_at=timestamp,
-    )
+    if status_id != current["status_id"]:
+        add_timeline(
+            db,
+            "product",
+            current["request_id"],
+            request_id,
+            "status_changed",
+            "Status updated",
+            f"Status changed from {format_status_for_log(db, current['status_id'])} to {format_status_for_log(db, status_id)}." + (f" Reason: {reason}" if reason else ""),
+            stage_id=current["current_stage_id"],
+            status_id=status_id,
+            created_by=changed_by,
+            created_at=timestamp,
+        )
     return get_workflow(db, request_id)
 
 
@@ -1431,18 +1435,19 @@ def save_initiative_status(db: LakebaseConnection, request_id: str, payload: dic
         """,
         (status_id, reason, timestamp, changed_by, timestamp, request_id),
     )
-    add_timeline(
-        db,
-        "request",
-        request_id,
-        None,
-        "status_changed",
-        "Initiative status updated",
-        f"Status changed from {format_status_for_log(db, current['status_id'])} to {format_status_for_log(db, status_id)}." + (f" Reason: {reason}" if reason else ""),
-        status_id=status_id,
-        created_by=changed_by,
-        created_at=timestamp,
-    )
+    if status_id != current["status_id"]:
+        add_timeline(
+            db,
+            "request",
+            request_id,
+            None,
+            "status_changed",
+            "Initiative status updated",
+            f"Status changed from {format_status_for_log(db, current['status_id'])} to {format_status_for_log(db, status_id)}." + (f" Reason: {reason}" if reason else ""),
+            status_id=status_id,
+            created_by=changed_by,
+            created_at=timestamp,
+        )
     return get_initiative_by_id(db, request_id)
 
 
@@ -1620,6 +1625,8 @@ def add_timeline(
     created_by: str | None = None,
     created_at: str | None = None,
 ) -> None:
+    timeline_id = str(uuid.uuid4())
+    event_created_at = created_at or now()
     db.execute(
         """
         INSERT INTO governance_timeline (
@@ -1628,8 +1635,126 @@ def add_timeline(
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (str(uuid.uuid4()), entity_type, request_id, data_product_id, event_type, stage_id, from_stage_id, to_stage_id, status_id, event_label, event_detail, created_by or "system", created_at or now()),
+        (timeline_id, entity_type, request_id, data_product_id, event_type, stage_id, from_stage_id, to_stage_id, status_id, event_label, event_detail, created_by or "system", event_created_at),
     )
+    enqueue_notification_for_timeline(
+        db,
+        timeline_id=timeline_id,
+        entity_type=entity_type,
+        request_id=request_id,
+        data_product_id=data_product_id,
+        event_type=event_type,
+        event_label=event_label,
+        event_detail=event_detail,
+        created_by=created_by or "system",
+        created_at=event_created_at,
+    )
+
+
+def enqueue_notification_for_timeline(
+    db: LakebaseConnection,
+    timeline_id: str,
+    entity_type: str,
+    request_id: str | None,
+    data_product_id: str | None,
+    event_type: str,
+    event_label: str,
+    event_detail: str,
+    created_by: str,
+    created_at: str,
+) -> None:
+    if event_type not in NOTIFICATION_EVENT_TYPES:
+        return
+    recipient = clean_email(TEST_NOTIFICATION_RECIPIENT, "notification test recipient", required=False)
+    if not recipient:
+        return
+    context = notification_context(db, entity_type, request_id, data_product_id)
+    subject = notification_subject(event_label, context)
+    body = notification_body(event_label, event_detail, created_by, created_at, context)
+    db.execute(
+        """
+        INSERT INTO notification_outbox (
+          notification_id, timeline_id, entity_type, request_id, data_product_id, event_type,
+          recipient_email, subject, body, status, attempts, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?)
+        """,
+        (str(uuid.uuid4()), timeline_id, entity_type, request_id, data_product_id, event_type, recipient, subject, body, created_at),
+    )
+
+
+def notification_context(db: LakebaseConnection, entity_type: str, request_id: str | None, data_product_id: str | None) -> dict:
+    if entity_type == "product" and data_product_id:
+        row = db.execute(
+            """
+            SELECT
+              p.title AS product_title,
+              p.data_product_business_id,
+              r.initiative,
+              r.request_number,
+              r.requester_name,
+              r.requester_email
+            FROM data_products p
+            JOIN governance_requests r ON r.request_id = p.request_id
+            WHERE p.data_product_id = ?
+            """,
+            (data_product_id,),
+        ).fetchone()
+        return dict(row or {})
+    if request_id:
+        row = db.execute(
+            """
+            SELECT
+              initiative,
+              request_number,
+              requester_name,
+              requester_email
+            FROM governance_requests
+            WHERE request_id = ?
+            """,
+            (request_id,),
+        ).fetchone()
+        return dict(row or {})
+    return {}
+
+
+def notification_subject(event_label: str, context: dict) -> str:
+    product = context.get("product_title")
+    initiative = context.get("initiative")
+    if product:
+        return f"Governance update: {event_label} - {product}"
+    if initiative:
+        return f"Governance update: {event_label} - {initiative}"
+    return f"Governance update: {event_label}"
+
+
+def notification_body(event_label: str, event_detail: str, created_by: str, created_at: str, context: dict) -> str:
+    lines = [
+        "A governance workflow event requires attention.",
+        "",
+        f"Event: {event_label}",
+    ]
+    if event_detail:
+        lines.append(f"Detail: {event_detail}")
+    if context.get("initiative"):
+        lines.append(f"Initiative: {context['initiative']}")
+    if context.get("request_number"):
+        lines.append(f"Initiative ID: {context['request_number']}")
+    if context.get("product_title"):
+        lines.append(f"Product: {context['product_title']}")
+    if context.get("data_product_business_id"):
+        lines.append(f"Product ID: {context['data_product_business_id']}")
+    if context.get("requester_name") or context.get("requester_email"):
+        lines.append(f"Requester: {context.get('requester_name') or ''} {context.get('requester_email') or ''}".strip())
+    lines.extend(
+        [
+            f"Changed by: {created_by}",
+            f"Changed at: {created_at}",
+            "",
+            "Testing mode: this notification is currently routed only to kerem.seyid@syngenta.com.",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def effective_stage_entered_at(row: dict) -> str:

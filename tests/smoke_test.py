@@ -43,6 +43,11 @@ def main() -> None:
         ],
     ) == "Business value: empty -> Faster commercial decision making"
     assert server.describe_workflow_changes(None, []) == "Submitted with no field changes."
+    context = {"initiative": "Sales Growth", "product_title": "Customer 360"}
+    assert server.notification_subject("Stage advanced", context) == "Governance update: Stage advanced - Customer 360"
+    body = server.notification_body("Stage advanced", "Advanced to estimation.", "system", "2026-06-18T00:00:00+00:00", context)
+    assert "Testing mode" in body
+    assert "Customer 360" in body
     stage_requirements = [
         {"is_required": 1, "input_type": "text", "answer_value": "Commercial"},
         {"is_required": 0, "input_type": "select", "answer_value": ""},
