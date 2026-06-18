@@ -635,12 +635,10 @@ button .spinner {
   padding: 10px 11px;
 }
 
-.overview-controls {
-  margin-top: 18px;
-}
-
-.overview-controls .search-wrap input {
-  width: min(100%, 560px);
+.search-wrap.compact input {
+  width: 190px;
+  padding: 8px 10px;
+  font-size: 13px;
 }
 
 .table-wrap {
@@ -698,31 +696,35 @@ th {
 }
 
 .initiative-products-row td {
-  padding: 0 10px 14px;
-  background: #f8fafc;
+  padding: 0 10px 8px 30px;
+  border-bottom: 1px solid var(--line);
+  background: white;
 }
 
 .initiative-products-list {
   display: grid;
-  gap: 8px;
-  padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: white;
+  gap: 0;
+  padding: 0;
 }
 
 .initiative-product-item {
   display: grid;
   grid-template-columns: minmax(220px, 1.8fr) minmax(120px, 0.9fr) minmax(90px, 0.6fr) minmax(110px, 0.7fr);
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
-  padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel-soft);
+  padding: 6px 0 6px 12px;
+  border: 0;
+  border-left: 2px solid var(--line);
+  border-radius: 0;
+  background: transparent;
   color: var(--text);
   text-align: left;
+  font-size: 12px;
+}
+
+.initiative-product-item + .initiative-product-item {
+  border-top: 1px solid #edf2f7;
 }
 
 button.initiative-product-item {
@@ -731,8 +733,8 @@ button.initiative-product-item {
 
 button.initiative-product-item:hover,
 button.initiative-product-item:focus-visible {
-  border-color: var(--accent);
-  background: #ecfdf5;
+  border-left-color: var(--accent);
+  background: #f8fafc;
   outline: none;
 }
 
@@ -744,14 +746,12 @@ button.initiative-product-item:focus-visible {
 .initiative-product-item small,
 .initiative-products-empty {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .initiative-products-empty {
-  padding: 10px 12px;
-  border: 1px dashed var(--line);
-  border-radius: 8px;
-  background: white;
+  padding: 6px 0 6px 12px;
+  border-left: 2px solid var(--line);
 }
 
 .column-filter-row th {
