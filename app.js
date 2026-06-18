@@ -583,7 +583,7 @@ function populateRequestSelects() {
 function renderAdminOptions() {
   const initiativeSelect = document.getElementById("adminInitiativeSelect");
   if (!initiativeSelect) return;
-  const selectedInitiative = initiativeSelect.value || activeInitiativeId;
+  const selectedInitiative = activeInitiativeId || initiativeSelect.value;
   initiativeSelect.innerHTML = "";
   initiatives.forEach((initiative) => {
     const option = document.createElement("option");
@@ -630,7 +630,11 @@ async function renderAdmin() {
     renderWorkflowLoading("Loading product list...");
     return;
   }
-  activeInitiativeId = document.getElementById("adminInitiativeSelect")?.value || activeInitiativeId || initiatives[0]?.requestId || "";
+  activeInitiativeId = activeInitiativeId || document.getElementById("adminInitiativeSelect")?.value || initiatives[0]?.requestId || "";
+  const initiativeSelect = document.getElementById("adminInitiativeSelect");
+  if (initiativeSelect && initiativeSelect.value !== activeInitiativeId) {
+    initiativeSelect.value = activeInitiativeId;
+  }
   renderAdminInitiativeCard();
   const initiativeProducts = products.filter((product) => product.initiativeRequestId === activeInitiativeId);
   const desiredRequestId =
