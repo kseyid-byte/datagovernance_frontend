@@ -405,7 +405,6 @@ function renderRail() {
     button.innerHTML = `
       <span class="rail-card-step">Stage ${stage.number}</span>
       <span class="rail-card-name">${escapeHtml(stage.name)}</span>
-      <span class="rail-card-desc">${escapeHtml(stageDescriptions[stage.id] || "")}</span>
       <span class="rail-card-count">${count} product${count === 1 ? "" : "s"} / ${percent}%</span>
     `;
     button.addEventListener("click", () => {
