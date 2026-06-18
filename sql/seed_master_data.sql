@@ -41,6 +41,7 @@ INSERT INTO md_priorities VALUES
 ON CONFLICT DO NOTHING;
 
 INSERT INTO md_statuses VALUES
+  ('new', 'New'),
   ('not_started', 'Not started'),
   ('in_review', 'In review'),
   ('in_progress', 'In progress'),

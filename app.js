@@ -451,6 +451,19 @@ function renderInitiativeTable() {
   }
   visible.forEach((initiative) => {
     const row = document.createElement("tr");
+    row.className = currentUser.canAdmin ? "clickable-row" : "";
+    if (currentUser.canAdmin) {
+      row.tabIndex = 0;
+      row.setAttribute("role", "button");
+      row.setAttribute("aria-label", `Open admin view for ${initiative.initiative || initiative.title}`);
+      row.addEventListener("click", () => openInitiativeAdmin(initiative.requestId));
+      row.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          openInitiativeAdmin(initiative.requestId);
+        }
+      });
+    }
     row.innerHTML = `
       <td><strong>${escapeHtml(initiative.initiative || initiative.title)}</strong><br><small>${escapeHtml(initiative.id)}</small></td>
       <td>${escapeHtml(initiative.requester || "")}<br><small>${escapeHtml(initiative.requesterEmail || "")}</small></td>
@@ -468,6 +481,14 @@ function formatDaysInStage(days) {
   if (!Number.isFinite(numericDays)) return "Not set";
   if (numericDays <= 0) return "<1 day";
   return numericDays === 1 ? "1 day" : `${numericDays} days`;
+}
+
+function openInitiativeAdmin(requestId) {
+  if (!currentUser.canAdmin) return;
+  activeInitiativeId = requestId;
+  activeWorkflowRequestId = "";
+  setView("admin");
+  scrollAdminToTop();
 }
 
 async function openProductWorkflow(requestId) {
@@ -536,12 +557,12 @@ function scopeParentName(parentId) {
 
 function populateRequestSelects() {
   populateSelect("businessUnitSelect", masterData.businessUnits);
+  populateSelect("expectedOutputSelect", masterData.expectedOutputs);
+  populateSelect("platformSelect", masterData.platforms);
   populateSelect("adminProductDomainSelect", masterData.domains);
   populateSelect("adminProductExpectedOutputSelect", masterData.expectedOutputs);
   populateSelect("adminProductTypeSelect", masterData.productTypes);
   populateSelect("adminProductPlatformSelect", masterData.platforms);
-  populateSelect("productTypeSelect", masterData.productTypes);
-  populateSelect("platformSelect", masterData.platforms);
   populateSelect("prioritySelect", masterData.priorities, "p2");
   populateSelect("scopeSelect", masterData.scopeOptions);
   const requesterEmail = document.querySelector('input[name="requesterEmail"]');
@@ -579,6 +600,29 @@ function renderAdminOptions() {
   if (selected && products.some((product) => product.requestId === selected)) {
     select.value = selected;
   }
+  renderAdminProductLinks();
+}
+
+function renderAdminProductLinks() {
+  const list = document.getElementById("adminProductLinks");
+  if (!list) return;
+  const initiativeProducts = products.filter((product) => product.initiativeRequestId === activeInitiativeId);
+  list.innerHTML = "";
+  if (!initiativeProducts.length) {
+    list.innerHTML = `<span class="help">No products under this initiative yet.</span>`;
+    return;
+  }
+  initiativeProducts.forEach((product) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `ghost-button full${product.requestId === activeWorkflowRequestId ? " active" : ""}`;
+    button.textContent = `${product.id} - ${product.title}`;
+    button.addEventListener("click", () => {
+      document.getElementById("adminProductSelect").value = product.requestId;
+      loadWorkflow(product.requestId).catch((error) => console.error("Failed to load workflow", error));
+    });
+    list.appendChild(button);
+  });
 }
 
 async function renderAdmin() {
@@ -589,6 +633,7 @@ async function renderAdmin() {
     return;
   }
   activeInitiativeId = document.getElementById("adminInitiativeSelect")?.value || activeInitiativeId || initiatives[0]?.requestId || "";
+  renderAdminInitiativeCard();
   const initiativeProducts = products.filter((product) => product.initiativeRequestId === activeInitiativeId);
   const desiredRequestId =
     activeWorkflowRequestId && initiativeProducts.some((product) => product.requestId === activeWorkflowRequestId)
@@ -605,6 +650,36 @@ async function renderAdmin() {
   }
   select.value = desiredRequestId;
   await loadWorkflow(desiredRequestId);
+}
+
+function renderAdminInitiativeCard() {
+  const card = document.getElementById("adminInitiativeCard");
+  if (!card) return;
+  const initiative = initiatives.find((item) => item.requestId === activeInitiativeId);
+  if (!initiative) {
+    card.innerHTML = `<span>No initiative selected.</span>`;
+    return;
+  }
+  card.innerHTML = `
+    <strong>${escapeHtml(initiative.initiative || initiative.title)}</strong>
+    <span>${escapeHtml(initiative.id)} | ${escapeHtml(initiative.businessUnit || "No BU")} | ${escapeHtml(initiative.priority || "No priority")}</span>
+    <span>Scope: ${escapeHtml(initiative.scope || "Not set")}</span>
+    <span>Expected output: ${escapeHtml(initiative.expectedOutput || "Not set")}</span>
+    <span>Target platform: ${escapeHtml(initiative.platform || "Not set")}</span>
+    <span>Products: ${escapeHtml(initiative.productCount ?? 0)}</span>
+    <label class="admin-status-field">
+      Request status
+      <select id="initiativeStatusSelect">
+        ${statusOptions(initiative.statusId)}
+      </select>
+    </label>
+    <label class="admin-status-field">
+      Request status change reason
+      <textarea id="initiativeStatusReason" rows="3" placeholder="Reason for request status change">${escapeHtml(initiative.statusChangeReason || "")}</textarea>
+    </label>
+    <button class="ghost-button full" id="saveInitiativeStatus" type="button">Save request status</button>
+  `;
+  document.getElementById("saveInitiativeStatus")?.addEventListener("click", handleInitiativeStatusSave);
 }
 
 async function loadWorkflow(requestId) {
@@ -962,6 +1037,34 @@ async function handleStatusSave() {
   }
 }
 
+async function handleInitiativeStatusSave() {
+  const requestId = document.getElementById("adminInitiativeSelect")?.value || activeInitiativeId;
+  if (!requestId) return;
+  clearAppError();
+  const statusId = document.getElementById("initiativeStatusSelect")?.value || "";
+  const statusChangeReason = document.getElementById("initiativeStatusReason")?.value || "";
+  const saveButton = document.getElementById("saveInitiativeStatus");
+  try {
+    setLoading("savingWorkflow", true);
+    setButtonBusy(saveButton, true, "Saving request status...");
+    const updated = await apiJson(
+      `/api/initiatives/${requestId}/status`,
+      jsonOptions("POST", { statusId, statusChangeReason })
+    );
+    initiatives = initiatives.map((initiative) => (initiative.requestId === requestId ? updated : initiative));
+    renderAdminInitiativeCard();
+    document.getElementById("workflowMessage").textContent = "Request status saved.";
+  } catch (error) {
+    console.error("Failed to save request status", error);
+    const message = error.message || "Request status could not be saved.";
+    showAppError(message);
+    document.getElementById("workflowMessage").textContent = message;
+  } finally {
+    setLoading("savingWorkflow", false);
+    setButtonBusy(saveButton, false);
+  }
+}
+
 function statusOptions(selectedId) {
   return (masterData.statuses || [])
     .map(
@@ -1112,6 +1215,8 @@ async function handleSubmit(event) {
     initiative: form.get("initiative"),
     priority: form.get("priority"),
     scope: form.get("scope"),
+    expectedOutput: form.get("expectedOutput"),
+    platform: form.get("platform"),
     description: form.get("description"),
     businessValue: form.get("businessValue"),
     requester: form.get("requester"),

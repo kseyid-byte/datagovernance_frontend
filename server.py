@@ -405,19 +405,21 @@ def insert_request(db: LakebaseConnection, payload: dict, timestamp: str | None 
     timestamp = timestamp or now()
     request_id = str(uuid.uuid4())
     request_number = normalize_request_number(payload.get("request_number")) or next_request_number(db)
-    status_id = ensure_reference(db, "md_statuses", "status_id", payload.get("status", "in_review"), "status")
+    status_id = ensure_reference(db, "md_statuses", "status_id", payload.get("status", "new"), "status")
     requester_email = clean_email(payload.get("requesterEmail"), "requester email")
     priority_id = ensure_reference(db, "md_priorities", "priority_id", payload.get("priority") or "p2", "priority")
     business_unit_id = ensure_reference(db, "md_business_units", "business_unit_id", payload.get("businessUnit", "cp"), "business unit", required=False)
     scope_id = ensure_reference(db, "md_scope_options", "scope_id", payload.get("scope") or "global", "scope", required=False)
+    expected_output_id = ensure_reference(db, "md_expected_outputs", "expected_output_id", payload.get("expectedOutput") or "table_dataset", "expected output", required=False) or None
+    platform_id = ensure_reference(db, "md_platforms", "platform_id", payload.get("platform") or "databricks", "target platform")
     db.execute(
         """
         INSERT INTO governance_requests (
           request_id, request_number, initiative, business_decision, business_value,
-          priority_id, business_unit_id, scope_id, requester_name, requester_email,
+          expected_output_id, target_platform_id, priority_id, business_unit_id, scope_id, requester_name, requester_email,
           expected_date, additional_comments, status_id, note, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             request_id,
@@ -425,6 +427,8 @@ def insert_request(db: LakebaseConnection, payload: dict, timestamp: str | None 
             clean_text(payload.get("initiative"), "initiative", required=True),
             clean_text(payload.get("description"), "business decision", max_length=MAX_TEXTAREA_LENGTH),
             clean_text(payload.get("businessValue"), "business value", max_length=MAX_TEXTAREA_LENGTH),
+            expected_output_id,
+            platform_id,
             priority_id,
             business_unit_id,
             scope_id,
@@ -497,6 +501,8 @@ def get_initiatives(db: LakebaseConnection) -> list[dict]:
           pr.priority_name,
           scope.scope_name,
           st.status_name,
+          eo.expected_output_name,
+          pl.platform_name,
           COUNT(p.data_product_id) AS product_count,
           CONCAT_WS(
             ' ',
@@ -504,6 +510,7 @@ def get_initiatives(db: LakebaseConnection) -> list[dict]:
             r.business_value, r.requester_name, r.requester_email,
             r.expected_date, r.additional_comments, r.note,
             bu.business_unit_name, pr.priority_name, scope.scope_name, st.status_name,
+            eo.expected_output_name, pl.platform_name,
             STRING_AGG(COALESCE(p.title, ''), ' ')
           ) AS search_text
         FROM governance_requests r
@@ -512,7 +519,9 @@ def get_initiatives(db: LakebaseConnection) -> list[dict]:
         LEFT JOIN md_priorities pr ON pr.priority_id = r.priority_id
         LEFT JOIN md_scope_options scope ON scope.scope_id = r.scope_id
         LEFT JOIN md_statuses st ON st.status_id = r.status_id
-        GROUP BY r.request_id, bu.business_unit_name, pr.priority_name, scope.scope_name, st.status_name
+        LEFT JOIN md_expected_outputs eo ON eo.expected_output_id = r.expected_output_id
+        LEFT JOIN md_platforms pl ON pl.platform_id = r.target_platform_id
+        GROUP BY r.request_id, bu.business_unit_name, pr.priority_name, scope.scope_name, st.status_name, eo.expected_output_name, pl.platform_name
         ORDER BY r.created_at DESC
         """
     ).fetchall()
@@ -528,6 +537,8 @@ def get_initiative_by_id(db: LakebaseConnection, request_id: str) -> dict:
           pr.priority_name,
           scope.scope_name,
           st.status_name,
+          eo.expected_output_name,
+          pl.platform_name,
           COUNT(p.data_product_id) AS product_count,
           CONCAT_WS(' ', r.request_id, r.request_number, r.initiative, r.business_decision, r.business_value, r.requester_name, r.requester_email, r.note) AS search_text
         FROM governance_requests r
@@ -536,8 +547,10 @@ def get_initiative_by_id(db: LakebaseConnection, request_id: str) -> dict:
         LEFT JOIN md_priorities pr ON pr.priority_id = r.priority_id
         LEFT JOIN md_scope_options scope ON scope.scope_id = r.scope_id
         LEFT JOIN md_statuses st ON st.status_id = r.status_id
+        LEFT JOIN md_expected_outputs eo ON eo.expected_output_id = r.expected_output_id
+        LEFT JOIN md_platforms pl ON pl.platform_id = r.target_platform_id
         WHERE r.request_id = ?
-        GROUP BY r.request_id, bu.business_unit_name, pr.priority_name, scope.scope_name, st.status_name
+        GROUP BY r.request_id, bu.business_unit_name, pr.priority_name, scope.scope_name, st.status_name, eo.expected_output_name, pl.platform_name
         """,
         (request_id,),
     ).fetchone()
@@ -1387,6 +1400,44 @@ def save_request_status(db: LakebaseConnection, request_id: str, payload: dict) 
     return get_workflow(db, request_id)
 
 
+def save_initiative_status(db: LakebaseConnection, request_id: str, payload: dict) -> dict:
+    timestamp = now()
+    status_id = payload.get("statusId")
+    reason = str(payload.get("statusChangeReason") or "").strip()
+    changed_by = clean_email(payload.get("updatedBy"), "updated by", required=False) or "system"
+    if not status_id:
+        raise ValueError("statusId is required")
+    status_id = ensure_reference(db, "md_statuses", "status_id", status_id, "status")
+    current = db.execute("SELECT status_id FROM governance_requests WHERE request_id = ?", (request_id,)).fetchone()
+    if not current:
+        raise ValueError("initiative not found")
+    db.execute(
+        """
+        UPDATE governance_requests
+        SET status_id = ?,
+            status_change_reason = ?,
+            last_status_change_date = ?,
+            last_status_changed_by = ?,
+            updated_at = ?
+        WHERE request_id = ?
+        """,
+        (status_id, reason, timestamp, changed_by, timestamp, request_id),
+    )
+    add_timeline(
+        db,
+        "request",
+        request_id,
+        None,
+        "status_changed",
+        "Initiative status updated",
+        f"Status changed from {format_status_for_log(db, current['status_id'])} to {format_status_for_log(db, status_id)}." + (f" Reason: {reason}" if reason else ""),
+        status_id=status_id,
+        created_by=changed_by,
+        created_at=timestamp,
+    )
+    return get_initiative_by_id(db, request_id)
+
+
 def update_structured_field(db: LakebaseConnection, request_id: str, key: str, value: str) -> None:
     parent_field_map = {
         "priority_id": "priority_id",
@@ -1670,12 +1721,19 @@ def serialize_initiative(row: dict) -> dict:
         "scopeId": row["scope_id"] or "",
         "priority": row["priority_name"] or "",
         "priorityId": row["priority_id"] or "",
+        "expectedOutput": row["expected_output_name"] or "",
+        "expectedOutputId": row["expected_output_id"] or "",
+        "platform": row["platform_name"] or "",
+        "platformId": row["target_platform_id"] or "",
         "requester": row["requester_name"] or "",
         "requesterEmail": row["requester_email"] or "",
         "expectedDate": row["expected_date"] or "",
         "additionalComments": row["additional_comments"] or "",
         "status": row["status_name"] or status_id or "Unassigned",
         "statusId": status_id,
+        "statusChangeReason": row["status_change_reason"] or "",
+        "lastStatusChangeDate": row["last_status_change_date"] or "",
+        "lastStatusChangedBy": row["last_status_changed_by"] or "",
         "productCount": int(row["product_count"] or 0),
         "note": row["note"] or "",
         "createdAt": row["created_at"] or "",
@@ -1808,6 +1866,17 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
                 with connect() as db:
                     require_admin(db, actor_email)
                     result = save_request_status(db, request_id, payload)
+                    db.commit()
+                self.send_json(result)
+                return
+
+            if path.startswith("/api/initiatives/") and path.endswith("/status"):
+                request_id = path.split("/")[3]
+                actor_email = request_user_email(self.headers)
+                payload["updatedBy"] = actor_email
+                with connect() as db:
+                    require_admin(db, actor_email)
+                    result = save_initiative_status(db, request_id, payload)
                     db.commit()
                 self.send_json(result)
                 return

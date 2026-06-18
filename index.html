@@ -203,6 +203,14 @@
                   <select name="scope" id="scopeSelect" required></select>
                 </label>
                 <label>
+                  Expected output
+                  <select name="expectedOutput" id="expectedOutputSelect" required></select>
+                </label>
+                <label>
+                  Target platform
+                  <select name="platform" id="platformSelect" required></select>
+                </label>
+                <label>
                   Requester
                   <input name="requester" required placeholder="Name" />
                 </label>
@@ -260,6 +268,7 @@
                   Initiative
                   <select id="adminInitiativeSelect"></select>
                 </label>
+                <div class="admin-product-card" id="adminInitiativeCard"></div>
                 <form id="adminProductForm" class="master-data-form">
                   <label>
                     Product name
@@ -295,6 +304,7 @@
                   Governed product
                   <select id="adminProductSelect"></select>
                 </label>
+                <div id="adminProductLinks" class="product-link-list"></div>
                 <div class="admin-product-card" id="adminProductCard"></div>
               </div>
 

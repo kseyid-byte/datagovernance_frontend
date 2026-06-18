@@ -85,6 +85,8 @@ CREATE TABLE IF NOT EXISTS governance_requests (
   initiative TEXT NOT NULL,
   business_decision TEXT,
   business_value TEXT,
+  expected_output_id TEXT,
+  target_platform_id TEXT,
   expected_date TEXT,
   additional_comments TEXT,
   status_id TEXT NOT NULL,

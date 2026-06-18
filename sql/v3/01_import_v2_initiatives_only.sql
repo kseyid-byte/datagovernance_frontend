@@ -39,6 +39,8 @@ mapped AS (
     COALESCE(src->>'business_unit_id', src->>'business_unit', 'cp') AS business_unit_raw,
     COALESCE(src->>'scope_id', src->>'scope', src->>'region', 'global') AS scope_raw,
     COALESCE(src->>'priority_id', src->>'priority', 'p2') AS priority_raw,
+    COALESCE(src->>'expected_output_id', 'table_dataset') AS expected_output_raw,
+    COALESCE(src->>'target_platform_id', 'databricks') AS platform_raw,
     COALESCE(src->>'requester_name', src->>'requestor', '') AS requester_name,
     LOWER(COALESCE(src->>'requester_email', src->>'requested_by', src->>'requestor', '')) AS requester_email,
     COALESCE(src->>'expected_date', src->>'business_expected_date', '') AS expected_date,
@@ -52,6 +54,8 @@ INSERT INTO governance_requests (
   initiative,
   business_decision,
   business_value,
+  expected_output_id,
+  target_platform_id,
   priority_id,
   business_unit_id,
   scope_id,
@@ -70,6 +74,14 @@ SELECT
   initiative_name,
   NULLIF(business_decision, ''),
   NULLIF(business_value, ''),
+  CASE
+    WHEN expected_output_raw IN ('table_dataset', 'dashboard', 'api', 'semantic_layer', 'lynx_knowledge_base', 'ai_search_feature', 'report', 'other') THEN expected_output_raw
+    ELSE 'table_dataset'
+  END,
+  CASE
+    WHEN platform_raw IN ('databricks', 'lynx', 'both') THEN platform_raw
+    ELSE 'databricks'
+  END,
   CASE
     WHEN LOWER(priority_raw) IN ('p1', 'high', 'critical') THEN 'p1'
     WHEN LOWER(priority_raw) IN ('p3', 'low') THEN 'p3'
@@ -94,7 +106,7 @@ SELECT
   NULLIF(requester_email, ''),
   NULLIF(expected_date, ''),
   NULLIF(additional_comments, ''),
-  'in_review',
+  'new',
   'Imported from v2 request/product row. Products will be added later.',
   created_at,
   created_at
@@ -103,6 +115,8 @@ ON CONFLICT (request_id) DO UPDATE SET
   initiative = EXCLUDED.initiative,
   business_decision = EXCLUDED.business_decision,
   business_value = EXCLUDED.business_value,
+  expected_output_id = EXCLUDED.expected_output_id,
+  target_platform_id = EXCLUDED.target_platform_id,
   priority_id = EXCLUDED.priority_id,
   business_unit_id = EXCLUDED.business_unit_id,
   scope_id = EXCLUDED.scope_id,
