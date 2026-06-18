@@ -7,6 +7,7 @@ let activeStageId = "";
 let activeView = "overview";
 let activeWorkflowRequestId = "";
 let activeInitiativeId = "";
+const expandedInitiativeIds = new Set();
 let productsLoaded = false;
 let currentUser = {
   email: "",
@@ -426,14 +427,19 @@ function progressPercent(stageId, stages = masterData.stages || []) {
 
 function renderTable() {
   const rows = document.getElementById("productRows");
+  if (!rows) return;
   const visible = filteredProducts();
   rows.innerHTML = "";
 
   const activeStageName = stageNameById(activeStageId);
-  document.getElementById("pipelineTitle").textContent = activeStageId ? `${activeStageName} products` : "Product pipeline";
-  document.getElementById("pipelineSubtitle").textContent = activeStageId
-    ? `${visible.length} product${visible.length === 1 ? "" : "s"} in this stage.`
-    : "All captured products across the governance process.";
+  const title = document.getElementById("pipelineTitle");
+  const subtitle = document.getElementById("pipelineSubtitle");
+  if (title) title.textContent = activeStageId ? `${activeStageName} products` : "Product pipeline";
+  if (subtitle) {
+    subtitle.textContent = activeStageId
+      ? `${visible.length} product${visible.length === 1 ? "" : "s"} in this stage.`
+      : "All captured products across the governance process.";
+  }
   if (loadingState.products && !productsLoaded) {
     rows.innerHTML = `<tr class="loading-row"><td colspan="8"><div class="inline-loading">${loadingMarkup("Loading product requests from Databricks...")}</div></td></tr>`;
     return;
@@ -486,6 +492,8 @@ function renderInitiativeTable() {
     return;
   }
   visible.forEach((initiative) => {
+    const isExpanded = expandedInitiativeIds.has(initiative.requestId);
+    const initiativeProducts = initiativeProductsForOverview(initiative);
     const row = document.createElement("tr");
     row.className = currentUser.canAdmin ? "clickable-row" : "";
     if (currentUser.canAdmin) {
@@ -505,11 +513,25 @@ function renderInitiativeTable() {
       <td>${escapeHtml(initiative.requester || "")}<br><small>${escapeHtml(initiative.requesterEmail || "")}</small></td>
       <td>${escapeHtml(initiative.priority || "")}</td>
       <td>${escapeHtml(initiative.scope || "")}</td>
-      <td>${escapeHtml(initiative.productCount ?? 0)}</td>
+      <td>
+        <button class="expand-products-button" type="button" aria-expanded="${isExpanded ? "true" : "false"}">
+          <span>${isExpanded ? "Hide" : "Show"}</span>
+          <strong>${escapeHtml(initiativeProducts.length)} / ${escapeHtml(initiative.productCount ?? 0)}</strong>
+        </button>
+      </td>
       <td><span class="status ${statusClass(initiative.status)}">${escapeHtml(initiative.status || "")}</span></td>
     `;
+    row.querySelector(".expand-products-button")?.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (expandedInitiativeIds.has(initiative.requestId)) {
+        expandedInitiativeIds.delete(initiative.requestId);
+      } else {
+        expandedInitiativeIds.add(initiative.requestId);
+      }
+      renderInitiativeTable();
+    });
     rows.appendChild(row);
-    rows.appendChild(renderInitiativeProductRow(initiative));
+    if (isExpanded) rows.appendChild(renderInitiativeProductRow(initiative, initiativeProducts));
   });
 }
 
@@ -526,12 +548,11 @@ function initiativeProductsForOverview(initiative) {
   return productMatches.length ? productMatches : allForInitiative;
 }
 
-function renderInitiativeProductRow(initiative) {
+function renderInitiativeProductRow(initiative, initiativeProducts = initiativeProductsForOverview(initiative)) {
   const row = document.createElement("tr");
   row.className = "initiative-products-row";
   const cell = document.createElement("td");
   cell.colSpan = 6;
-  const initiativeProducts = initiativeProductsForOverview(initiative);
   if (!initiativeProducts.length) {
     cell.innerHTML = `<div class="initiative-products-empty">No governed products${activeStageId ? " in the selected stage" : ""}.</div>`;
     row.appendChild(cell);

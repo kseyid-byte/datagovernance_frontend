@@ -686,6 +686,34 @@ th {
   outline: none;
 }
 
+.expand-products-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 82px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: white;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.expand-products-button:hover,
+.expand-products-button:focus-visible {
+  border-color: var(--accent);
+  background: #f8fafc;
+  outline: none;
+}
+
+.expand-products-button span {
+  color: var(--muted);
+  font-weight: 700;
+}
+
 .initiative-products-row td {
   padding: 0 10px 8px 30px;
   border-bottom: 1px solid var(--line);
