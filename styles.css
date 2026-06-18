@@ -843,11 +843,18 @@ textarea {
 }
 
 .admin-left-pane {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 18px;
   grid-column: 1;
   position: sticky;
   top: 18px;
+  align-self: start;
+  max-height: calc(100vh - 36px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
 }
 
 .admin-timeline {
@@ -866,6 +873,56 @@ textarea {
 .admin-product-card strong {
   display: block;
   margin-bottom: 6px;
+}
+
+.product-link-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.product-select-line {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 11px 12px;
+  background: white;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.product-select-line:hover,
+.product-select-line:focus-visible {
+  border-color: var(--accent);
+  background: #f8fafc;
+  outline: none;
+}
+
+.product-select-line.active {
+  border-color: #f59e0b;
+  background: #fffbeb;
+  box-shadow: inset 4px 0 0 #f59e0b;
+}
+
+.product-select-line:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.product-select-line strong,
+.product-select-line span {
+  display: block;
+}
+
+.product-select-line span {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .admin-product-card span {
@@ -1133,6 +1190,9 @@ textarea {
 
   .admin-left-pane {
     position: static;
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
   }
 
   .rail {

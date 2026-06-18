@@ -188,8 +188,9 @@ function updateLoadingIndicators() {
   document.querySelector(".table-wrap")?.classList.toggle("is-refreshing", loadingState.products && productsLoaded);
   document.querySelector(".table-wrap")?.setAttribute("aria-busy", loadingState.products ? "true" : "false");
 
-  const adminSelect = document.getElementById("adminProductSelect");
-  if (adminSelect) adminSelect.disabled = loadingState.workflow || loadingState.savingWorkflow;
+  document.querySelectorAll(".product-select-line").forEach((button) => {
+    button.disabled = loadingState.workflow || loadingState.savingWorkflow;
+  });
   document.getElementById("workflowFields")?.classList.toggle(
     "is-loading",
     loadingState.workflow || loadingState.savingWorkflow
@@ -573,10 +574,8 @@ function populateRequestSelects() {
 
 function renderAdminOptions() {
   const initiativeSelect = document.getElementById("adminInitiativeSelect");
-  const select = document.getElementById("adminProductSelect");
-  if (!select || !initiativeSelect) return;
+  if (!initiativeSelect) return;
   const selectedInitiative = initiativeSelect.value || activeInitiativeId;
-  const selected = select.value;
   initiativeSelect.innerHTML = "";
   initiatives.forEach((initiative) => {
     const option = document.createElement("option");
@@ -588,18 +587,6 @@ function renderAdminOptions() {
     initiativeSelect.value = selectedInitiative;
   }
   activeInitiativeId = initiativeSelect.value || initiatives[0]?.requestId || "";
-  select.innerHTML = "";
-  products
-    .filter((product) => !activeInitiativeId || product.initiativeRequestId === activeInitiativeId)
-    .forEach((product) => {
-    const option = document.createElement("option");
-    option.value = product.requestId;
-    option.textContent = `${product.id} - ${product.title}`;
-    select.appendChild(option);
-    });
-  if (selected && products.some((product) => product.requestId === selected)) {
-    select.value = selected;
-  }
   renderAdminProductLinks();
 }
 
@@ -615,10 +602,14 @@ function renderAdminProductLinks() {
   initiativeProducts.forEach((product) => {
     const button = document.createElement("button");
     button.type = "button";
-    button.className = `ghost-button full${product.requestId === activeWorkflowRequestId ? " active" : ""}`;
-    button.textContent = `${product.id} - ${product.title}`;
+    button.className = `product-select-line${product.requestId === activeWorkflowRequestId ? " active" : ""}`;
+    button.innerHTML = `
+      <strong>${escapeHtml(product.title || "Untitled product")}</strong>
+      <span>${escapeHtml(product.id)} | ${escapeHtml(product.stage || "No stage")} | ${escapeHtml(product.status || "No status")}</span>
+    `;
     button.addEventListener("click", () => {
-      document.getElementById("adminProductSelect").value = product.requestId;
+      activeWorkflowRequestId = product.requestId;
+      renderAdminProductLinks();
       loadWorkflow(product.requestId).catch((error) => console.error("Failed to load workflow", error));
     });
     list.appendChild(button);
@@ -627,7 +618,6 @@ function renderAdminProductLinks() {
 
 async function renderAdmin() {
   renderAdminOptions();
-  const select = document.getElementById("adminProductSelect");
   if (loadingState.products && !productsLoaded) {
     renderWorkflowLoading("Loading product list...");
     return;
@@ -638,8 +628,10 @@ async function renderAdmin() {
   const desiredRequestId =
     activeWorkflowRequestId && initiativeProducts.some((product) => product.requestId === activeWorkflowRequestId)
       ? activeWorkflowRequestId
-      : select.value || initiativeProducts[0]?.requestId || "";
+      : initiativeProducts[0]?.requestId || "";
   if (!desiredRequestId) {
+    activeWorkflowRequestId = "";
+    renderAdminProductLinks();
     const selectedInitiative = initiatives.find((initiative) => initiative.requestId === activeInitiativeId);
     document.getElementById("adminProductCard").innerHTML = selectedInitiative
       ? `<strong>${escapeHtml(selectedInitiative.initiative)}</strong><span>No governed products have been added yet.</span>`
@@ -648,7 +640,8 @@ async function renderAdmin() {
     document.getElementById("timelineList").innerHTML = "";
     return;
   }
-  select.value = desiredRequestId;
+  activeWorkflowRequestId = desiredRequestId;
+  renderAdminProductLinks();
   await loadWorkflow(desiredRequestId);
 }
 
@@ -1341,11 +1334,6 @@ document.getElementById("adminInitiativeSelect").addEventListener("change", (eve
   activeInitiativeId = event.target.value;
   activeWorkflowRequestId = "";
   renderAdmin().catch((error) => console.error("Failed to render admin", error));
-});
-document.getElementById("adminProductSelect").addEventListener("change", (event) => {
-  loadWorkflow(event.target.value).catch((error) => {
-    console.error("Failed to load workflow", error);
-  });
 });
 document.getElementById("masterDataCollection").addEventListener("change", renderMasterData);
 document.getElementById("masterDataForm").addEventListener("submit", handleMasterDataSubmit);

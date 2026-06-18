@@ -268,8 +268,14 @@
                   Initiative
                   <select id="adminInitiativeSelect"></select>
                 </label>
+                <div id="adminProductLinks" class="product-link-list"></div>
                 <div class="admin-product-card" id="adminInitiativeCard"></div>
+                <div class="admin-product-card" id="adminProductCard"></div>
                 <form id="adminProductForm" class="master-data-form">
+                  <div>
+                    <h3>Add new product</h3>
+                    <p>Create another governed product under the selected initiative.</p>
+                  </div>
                   <label>
                     Product name
                     <input name="title" required placeholder="Customer sales performance dataset" />
@@ -300,12 +306,6 @@
                   </label>
                   <button class="primary-action full" type="submit">Add product</button>
                 </form>
-                <label>
-                  Governed product
-                  <select id="adminProductSelect"></select>
-                </label>
-                <div id="adminProductLinks" class="product-link-list"></div>
-                <div class="admin-product-card" id="adminProductCard"></div>
               </div>
 
               <div class="panel admin-timeline">
