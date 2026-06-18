@@ -74,42 +74,58 @@ CREATE TABLE IF NOT EXISTS md_build_statuses (
   build_status_name TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS data_product_requests_new (
+CREATE TABLE IF NOT EXISTS governance_requests (
   request_id TEXT PRIMARY KEY,
   request_number TEXT NOT NULL UNIQUE,
-  title TEXT NOT NULL,
-  description TEXT,
-  product_type_id TEXT NOT NULL,
-  target_platform_id TEXT NOT NULL,
   priority_id TEXT NOT NULL,
-  lead_domain_id TEXT NOT NULL,
   business_unit_id TEXT,
   scope_id TEXT,
   requester_name TEXT,
   requester_email TEXT,
-  data_product_owner TEXT,
-  initiative TEXT,
-  expected_output_id TEXT,
+  initiative TEXT NOT NULL,
+  business_decision TEXT,
   business_value TEXT,
+  expected_output_id TEXT,
+  target_platform_id TEXT,
   expected_date TEXT,
-  delivery_date TEXT,
+  additional_comments TEXT,
+  status_id TEXT NOT NULL,
+  status_change_reason TEXT,
+  last_status_change_date TEXT,
+  last_status_changed_by TEXT,
+  note TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS data_products (
+  data_product_id TEXT PRIMARY KEY,
+  request_id TEXT NOT NULL,
+  data_product_number TEXT NOT NULL UNIQUE,
+  title TEXT NOT NULL,
+  description TEXT,
+  expected_output_id TEXT,
+  product_type_id TEXT NOT NULL,
+  target_platform_id TEXT NOT NULL,
+  data_product_owner TEXT,
+  lead_domain_id TEXT NOT NULL,
+  lead_subdomain_id TEXT,
   delivery_lead TEXT,
+  data_domain_owner_user_id TEXT,
+  domain_delivery_lead_user_id TEXT,
+  lynx_pm_user_id TEXT,
+  delivery_date TEXT,
   effort INTEGER,
   jira_epic_id TEXT,
   jira_link TEXT,
   alation_link TEXT,
-  additional_comments TEXT,
+  source_system_id TEXT,
+  build_status_id TEXT,
   current_stage_id TEXT NOT NULL,
   status_id TEXT NOT NULL,
   status_change_reason TEXT,
   last_status_change_date TEXT,
   last_status_changed_by TEXT,
-  lead_subdomain_id TEXT,
-  data_domain_owner_user_id TEXT,
-  source_system_id TEXT,
-  domain_delivery_lead_user_id TEXT,
-  lynx_pm_user_id TEXT,
-  build_status_id TEXT,
   note TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -127,18 +143,20 @@ CREATE TABLE IF NOT EXISTS md_stage_requirements (
   is_required INTEGER NOT NULL DEFAULT 1
 );
 
-CREATE TABLE IF NOT EXISTS request_stage_answers (
+CREATE TABLE IF NOT EXISTS product_stage_answers (
   answer_id TEXT PRIMARY KEY,
-  request_id TEXT NOT NULL,
+  data_product_id TEXT NOT NULL,
   requirement_id TEXT NOT NULL,
   answer_value TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  UNIQUE(request_id, requirement_id)
+  UNIQUE(data_product_id, requirement_id)
 );
 
-CREATE TABLE IF NOT EXISTS request_timeline (
+CREATE TABLE IF NOT EXISTS governance_timeline (
   timeline_id TEXT PRIMARY KEY,
-  request_id TEXT NOT NULL,
+  entity_type TEXT NOT NULL,
+  request_id TEXT,
+  data_product_id TEXT,
   event_type TEXT NOT NULL,
   stage_id TEXT,
   from_stage_id TEXT,
@@ -150,8 +168,12 @@ CREATE TABLE IF NOT EXISTS request_timeline (
   created_at TEXT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_requests_stage ON data_product_requests_new(current_stage_id);
-CREATE INDEX IF NOT EXISTS idx_requests_status ON data_product_requests_new(status_id);
-CREATE INDEX IF NOT EXISTS idx_requests_created ON data_product_requests_new(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_stage_answers_request ON request_stage_answers(request_id);
-CREATE INDEX IF NOT EXISTS idx_timeline_request_created ON request_timeline(request_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_governance_requests_status ON governance_requests(status_id);
+CREATE INDEX IF NOT EXISTS idx_governance_requests_created ON governance_requests(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_data_products_request ON data_products(request_id);
+CREATE INDEX IF NOT EXISTS idx_data_products_stage ON data_products(current_stage_id);
+CREATE INDEX IF NOT EXISTS idx_data_products_status ON data_products(status_id);
+CREATE INDEX IF NOT EXISTS idx_data_products_created ON data_products(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_stage_answers_product ON product_stage_answers(data_product_id);
+CREATE INDEX IF NOT EXISTS idx_timeline_request_created ON governance_timeline(request_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_timeline_product_created ON governance_timeline(data_product_id, created_at DESC);

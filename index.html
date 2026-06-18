@@ -75,9 +75,9 @@
 
           <section class="metric-grid" aria-label="Portfolio metrics">
             <article class="metric-card">
-              <span class="metric-label">Total products</span>
+              <span class="metric-label">Total products / initiatives</span>
               <strong id="metricTotal">0</strong>
-              <small>Captured in the intake pipeline</small>
+              <small>Governed products over captured initiatives</small>
             </article>
             <article class="metric-card">
               <span class="metric-label">In review</span>
@@ -111,38 +111,34 @@
             <div class="panel large pipeline-panel">
               <div class="panel-header">
                 <div>
-                  <h2 id="pipelineTitle">Product pipeline</h2>
-                  <p id="pipelineSubtitle">All captured products across the governance process.</p>
+                  <h2>Initiatives</h2>
+                  <p>Requests can exist before governed products are added.</p>
                 </div>
-                <div class="search-wrap">
-                  <input id="searchInput" type="search" placeholder="Search product, domain, owner" />
+                <div class="search-wrap compact">
+                  <input id="searchInput" type="search" placeholder="Search" />
                 </div>
               </div>
               <div class="table-wrap">
                 <table>
                   <thead>
                     <tr>
-                      <th>Product</th>
-                      <th>Domain</th>
-                      <th>Type</th>
-                      <th>Platform</th>
-                      <th>Stage</th>
-                      <th>Days in stage</th>
+                      <th>Initiative</th>
+                      <th>Requester</th>
+                      <th>Priority</th>
+                      <th>Scope</th>
+                      <th>Products</th>
                       <th>Status</th>
-                      <th>Owner</th>
                     </tr>
                     <tr class="column-filter-row">
-                      <th><input class="column-filter" data-column="title" aria-label="Filter by product" placeholder="Filter product" /></th>
-                      <th><input class="column-filter" data-column="domain" aria-label="Filter by domain" placeholder="Filter domain" /></th>
-                      <th><input class="column-filter" data-column="type" aria-label="Filter by type" placeholder="Filter type" /></th>
-                      <th><input class="column-filter" data-column="platform" aria-label="Filter by platform" placeholder="Filter platform" /></th>
-                      <th><input class="column-filter" data-column="stage" aria-label="Filter by stage" placeholder="Filter stage" /></th>
-                      <th><input class="column-filter" data-column="daysInStage" aria-label="Filter by days in stage" placeholder="Days" /></th>
-                      <th><input class="column-filter" data-column="status" aria-label="Filter by status" placeholder="Filter status" /></th>
-                      <th><input class="column-filter" data-column="owner" aria-label="Filter by owner" placeholder="Filter owner" /></th>
+                      <th><input class="initiative-column-filter" data-column="initiative" aria-label="Filter by initiative" placeholder="Filter initiative" /></th>
+                      <th><input class="initiative-column-filter" data-column="requester" aria-label="Filter by requester" placeholder="Filter requester" /></th>
+                      <th><input class="initiative-column-filter" data-column="priority" aria-label="Filter by priority" placeholder="Filter priority" /></th>
+                      <th><input class="initiative-column-filter" data-column="scope" aria-label="Filter by scope" placeholder="Filter scope" /></th>
+                      <th><input class="initiative-column-filter" data-column="productCount" aria-label="Filter by products" placeholder="Products" /></th>
+                      <th><input class="initiative-column-filter" data-column="status" aria-label="Filter by status" placeholder="Filter status" /></th>
                     </tr>
                   </thead>
-                  <tbody id="productRows"></tbody>
+                  <tbody id="initiativeRows"></tbody>
                 </table>
               </div>
             </div>
@@ -164,20 +160,28 @@
               <h2>Intake</h2>
               <div class="form-grid">
                 <label>
-                  Product name
-                  <input name="title" required placeholder="Revenue KPI rebuild" />
-                </label>
-                <label>
-                  Domain
-                  <select name="domain" id="domainSelect" required></select>
+                  Initiative
+                  <input name="initiative" required placeholder="Commercial data acceleration" />
                 </label>
                 <label>
                   Business unit
                   <select name="businessUnit" id="businessUnitSelect" required></select>
                 </label>
                 <label>
-                  Initiative
-                  <input name="initiative" placeholder="Commercial data acceleration" />
+                  Priority
+                  <select name="priority" id="prioritySelect" required></select>
+                </label>
+                <label>
+                  Scope
+                  <select name="scope" id="scopeSelect" required></select>
+                </label>
+                <label>
+                  Expected output
+                  <select name="expectedOutput" id="expectedOutputSelect" required></select>
+                </label>
+                <label>
+                  Target platform
+                  <select name="platform" id="platformSelect" required></select>
                 </label>
                 <label>
                   Requester
@@ -192,6 +196,10 @@
                   <textarea name="description" rows="4" required placeholder="Which business decision will this product support?"></textarea>
                 </label>
                 <label class="wide">
+                  Business value
+                  <textarea name="businessValue" rows="3" placeholder="Why does this initiative matter?"></textarea>
+                </label>
+                <label class="wide">
                   Expected date
                   <input name="expectedDate" type="date" required />
                 </label>
@@ -201,7 +209,7 @@
             <aside class="summary-panel">
               <h2>Ready to submit</h2>
               <p>
-                The request starts in Intake. Later stages are locked until earlier required information is complete.
+                This creates an initiative. Admins can add one or more governed data products later.
               </p>
               <div class="summary-rule">Requester email must use syngenta.com.</div>
               <button class="primary-action full" type="submit">Submit request</button>
@@ -225,25 +233,62 @@
               <div class="panel">
                 <div class="panel-header">
                   <div>
-                    <h2>Select product</h2>
-                    <p>Only admins should use this screen.</p>
+                    <h2>Select initiative</h2>
+                    <p>Add or select governed products under the initiative.</p>
                   </div>
                 </div>
                 <label>
-                  Product request
-                  <select id="adminProductSelect"></select>
+                  Initiative
+                  <select id="adminInitiativeSelect"></select>
                 </label>
-                <div class="admin-product-card" id="adminProductCard"></div>
-              </div>
-
-              <div class="panel admin-timeline">
-                <div class="panel-header compact">
-                  <div>
-                    <h2>Timeline</h2>
-                    <p>Created, saved, status, and stage movement history.</p>
-                  </div>
-                </div>
-                <div id="timelineList" class="timeline-list"></div>
+                <div id="adminProductLinks" class="product-link-list"></div>
+                <details class="admin-collapse">
+                  <summary>Initiative overview</summary>
+                  <div class="admin-product-card" id="adminInitiativeCard"></div>
+                </details>
+                <details class="admin-collapse">
+                  <summary>Product overview</summary>
+                  <div class="admin-product-card" id="adminProductCard"></div>
+                </details>
+                <details class="admin-collapse">
+                  <summary>Add new product</summary>
+                  <form id="adminProductForm" class="master-data-form">
+                    <p>Create another governed product under the selected initiative.</p>
+                    <label>
+                      Product name
+                      <input name="title" required placeholder="Customer sales performance dataset" />
+                    </label>
+                    <label>
+                      Domain
+                      <select name="domain" id="adminProductDomainSelect" required></select>
+                    </label>
+                    <label>
+                      Expected output
+                      <select name="expectedOutput" id="adminProductExpectedOutputSelect"></select>
+                    </label>
+                    <label>
+                      Product type
+                      <select name="productType" id="adminProductTypeSelect"></select>
+                    </label>
+                    <label>
+                      Target platform
+                      <select name="platform" id="adminProductPlatformSelect"></select>
+                    </label>
+                    <label>
+                      Data Product Owner
+                      <input name="dataProductOwner" placeholder="Owner name" />
+                    </label>
+                    <label class="wide">
+                      Product description
+                      <textarea name="description" rows="3"></textarea>
+                    </label>
+                    <button class="primary-action full" type="submit">Add product</button>
+                  </form>
+                </details>
+                <details class="admin-collapse admin-timeline">
+                  <summary>Timeline</summary>
+                  <div id="timelineList" class="timeline-list"></div>
+                </details>
               </div>
             </div>
 

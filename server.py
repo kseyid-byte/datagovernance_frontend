@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 ROOT = Path(__file__).resolve().parent
 LAKEBASE_SCHEMA = os.getenv("GOVERNANCE_LAKEBASE_SCHEMA", "governance_app").strip() or "governance_app"
 STARTUP_ERROR: str | None = None
-ADMIN_ROLE_KEYS = {"admin", "data_domain_owner", "domain_delivery_lead", "lynx_pm"}
+ADMIN_ROLE_KEYS = {"admin", "data_domain_owner", "domain_delivery_lead", "hub_owner", "lynx_pm"}
 CONFIGURED_ADMIN_EMAILS = {
     email.strip().lower()
     for email in os.getenv("GOVERNANCE_ADMIN_EMAILS", "").split(",")
@@ -289,9 +289,10 @@ REQUIRED_TABLES = [
     "md_scope_options",
     "md_build_statuses",
     "md_stage_requirements",
-    "data_product_requests_new",
-    "request_stage_answers",
-    "request_timeline",
+    "governance_requests",
+    "data_products",
+    "product_stage_answers",
+    "governance_timeline",
 ]
 
 
@@ -368,16 +369,24 @@ def request_number_sort_value(value: object) -> int:
 
 
 def next_request_number(db: LakebaseConnection) -> str:
-    rows = db.execute("SELECT request_number FROM data_product_requests_new").fetchall()
+    rows = db.execute("SELECT request_number FROM governance_requests").fetchall()
     max_number = 0
     for row in rows:
         max_number = max(max_number, request_number_sort_value(row["request_number"]))
     return f"{max_number + 1:08d}"
 
 
+def next_product_number(db: LakebaseConnection) -> str:
+    rows = db.execute("SELECT data_product_number FROM data_products").fetchall()
+    max_number = 0
+    for row in rows:
+        max_number = max(max_number, request_number_sort_value(row["data_product_number"]))
+    return f"{max_number + 1:08d}"
+
+
 def validate_payload(payload: dict) -> str | None:
-    if not payload.get("title", "").strip():
-        return "title is required"
+    if not payload.get("initiative", "").strip():
+        return "initiative is required"
     email = payload.get("requesterEmail", "").strip().lower()
     if not re.match(r"^[^@\s]+@syngenta\.com$", email):
         return "requester email must use syngenta.com"
@@ -396,67 +405,164 @@ def insert_request(db: LakebaseConnection, payload: dict, timestamp: str | None 
     timestamp = timestamp or now()
     request_id = str(uuid.uuid4())
     request_number = normalize_request_number(payload.get("request_number")) or next_request_number(db)
-    stage_id = ensure_reference(db, "md_stages", "stage_id", payload.get("stage", "intake"), "stage")
-    status_id = ensure_reference(db, "md_statuses", "status_id", payload.get("status", "in_review"), "status")
-    domain_id = resolve_domain_id(db, payload.get("domain"))
-    title = clean_text(payload.get("title"), "title", required=True)
+    status_id = ensure_reference(db, "md_statuses", "status_id", payload.get("status", "new"), "status")
     requester_email = clean_email(payload.get("requesterEmail"), "requester email")
-    product_type_id = ensure_reference(db, "md_product_types", "product_type_id", payload.get("productType") or "structured", "product type")
-    platform_id = ensure_reference(db, "md_platforms", "platform_id", payload.get("platform") or "databricks", "target platform")
     priority_id = ensure_reference(db, "md_priorities", "priority_id", payload.get("priority") or "p2", "priority")
     business_unit_id = ensure_reference(db, "md_business_units", "business_unit_id", payload.get("businessUnit", "cp"), "business unit", required=False)
     scope_id = ensure_reference(db, "md_scope_options", "scope_id", payload.get("scope") or "global", "scope", required=False)
-    delivery_lead = (
-        ensure_user_role_reference(db, payload.get("deliveryLead"), "delivery lead", "domain_delivery_lead", required=False)
-        if payload.get("deliveryLead")
-        else ""
-    )
-    effort = clean_non_negative_int(payload.get("effort"), "effort")
+    expected_output_id = ensure_reference(db, "md_expected_outputs", "expected_output_id", payload.get("expectedOutput") or "table_dataset", "expected output", required=False) or None
+    platform_id = ensure_reference(db, "md_platforms", "platform_id", payload.get("platform") or "databricks", "target platform")
     db.execute(
         """
-        INSERT INTO data_product_requests_new (
-          request_id, request_number, title, description, product_type_id, target_platform_id,
-          priority_id, lead_domain_id, business_unit_id, scope_id, requester_name,
-          requester_email, initiative, expected_date, delivery_date, delivery_lead, effort,
-          jira_epic_id, jira_link, additional_comments, current_stage_id, status_id,
-          note, created_at, updated_at
+        INSERT INTO governance_requests (
+          request_id, request_number, initiative, business_decision, business_value,
+          expected_output_id, target_platform_id, priority_id, business_unit_id, scope_id, requester_name, requester_email,
+          expected_date, additional_comments, status_id, note, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             request_id,
             request_number,
-            title,
-            clean_text(payload.get("description"), "description", max_length=MAX_TEXTAREA_LENGTH),
-            product_type_id,
+            clean_text(payload.get("initiative"), "initiative", required=True),
+            clean_text(payload.get("description"), "business decision", max_length=MAX_TEXTAREA_LENGTH),
+            clean_text(payload.get("businessValue"), "business value", max_length=MAX_TEXTAREA_LENGTH),
+            expected_output_id,
             platform_id,
             priority_id,
-            domain_id,
             business_unit_id,
             scope_id,
             clean_text(payload.get("requester"), "requester", required=True),
             requester_email,
-            clean_text(payload.get("initiative"), "initiative"),
             clean_date(payload.get("expectedDate"), "expected date", required=True),
-            clean_date(payload.get("deliveryDate"), "delivery date"),
-            delivery_lead,
-            effort,
-            clean_text(payload.get("jiraEpicId"), "Jira epic ID"),
-            clean_http_url(payload.get("jiraLink"), "Jira link"),
             clean_text(payload.get("additionalComments"), "additional comments", max_length=MAX_TEXTAREA_LENGTH),
-            stage_id,
             status_id,
-            clean_text(payload.get("note", "New request submitted for triage"), "note", max_length=MAX_TEXTAREA_LENGTH),
+            clean_text(payload.get("note", "New initiative submitted for triage"), "note", max_length=MAX_TEXTAREA_LENGTH),
             timestamp,
             timestamp,
         ),
     )
-    add_timeline(db, request_id, "created", "Request created", "New request submitted.", stage_id=stage_id, status_id=status_id, created_by=requester_email, created_at=timestamp)
-    return get_request_by_id(db, request_id)
+    add_timeline(db, "request", request_id, None, "created", "Initiative created", "New initiative submitted.", status_id=status_id, created_by=requester_email, created_at=timestamp)
+    return get_initiative_by_id(db, request_id)
+
+
+def insert_product(db: LakebaseConnection, request_id: str, payload: dict, actor: str, timestamp: str | None = None) -> dict:
+    timestamp = timestamp or now()
+    parent = db.execute("SELECT 1 FROM governance_requests WHERE request_id = ?", (request_id,)).fetchone()
+    if not parent:
+        raise ValueError("initiative not found")
+    product_id = str(uuid.uuid4())
+    product_number = normalize_request_number(payload.get("productNumber")) or next_product_number(db)
+    stage_id = ensure_reference(db, "md_stages", "stage_id", payload.get("stage", "intake"), "stage")
+    status_id = ensure_reference(db, "md_statuses", "status_id", payload.get("status", "in_review"), "status")
+    domain_id = resolve_domain_id(db, payload.get("domain"))
+    db.execute(
+        """
+        INSERT INTO data_products (
+          data_product_id, request_id, data_product_number, title, description,
+          expected_output_id, product_type_id, target_platform_id, data_product_owner,
+          lead_domain_id, current_stage_id, status_id, note, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            product_id,
+            request_id,
+            product_number,
+            clean_text(payload.get("title"), "product title", required=True),
+            clean_text(payload.get("description"), "product description", max_length=MAX_TEXTAREA_LENGTH),
+            ensure_reference(db, "md_expected_outputs", "expected_output_id", payload.get("expectedOutput") or "table_dataset", "expected output", required=False) or None,
+            ensure_reference(db, "md_product_types", "product_type_id", payload.get("productType") or "structured", "product type"),
+            ensure_reference(db, "md_platforms", "platform_id", payload.get("platform") or "databricks", "target platform"),
+            clean_text(payload.get("dataProductOwner"), "Data Product Owner") or None,
+            domain_id,
+            stage_id,
+            status_id,
+            clean_text(payload.get("note", "Product created for governance"), "note", max_length=MAX_TEXTAREA_LENGTH),
+            timestamp,
+            timestamp,
+        ),
+    )
+    add_timeline(db, "product", request_id, product_id, "created", "Product created", "Data product added to initiative.", stage_id=stage_id, status_id=status_id, created_by=actor, created_at=timestamp)
+    return get_request_by_id(db, product_id)
 
 
 def get_requests(db: LakebaseConnection) -> list[dict]:
-    rows = db.execute(request_overview_select_sql() + " ORDER BY r.created_at DESC").fetchall()
+    rows = db.execute(request_overview_select_sql() + " ORDER BY p.created_at DESC").fetchall()
+    return [serialize_request(row) for row in rows]
+
+
+def get_initiatives(db: LakebaseConnection) -> list[dict]:
+    rows = db.execute(
+        """
+        SELECT
+          r.*,
+          bu.business_unit_name,
+          pr.priority_name,
+          scope.scope_name,
+          st.status_name,
+          eo.expected_output_name,
+          pl.platform_name,
+          COUNT(p.data_product_id) AS product_count,
+          CONCAT_WS(
+            ' ',
+            r.request_id, r.request_number, r.initiative, r.business_decision,
+            r.business_value, r.requester_name, r.requester_email,
+            r.expected_date, r.additional_comments, r.note,
+            bu.business_unit_name, pr.priority_name, scope.scope_name, st.status_name,
+            eo.expected_output_name, pl.platform_name,
+            STRING_AGG(COALESCE(p.title, ''), ' ')
+          ) AS search_text
+        FROM governance_requests r
+        LEFT JOIN data_products p ON p.request_id = r.request_id
+        LEFT JOIN md_business_units bu ON bu.business_unit_id = r.business_unit_id
+        LEFT JOIN md_priorities pr ON pr.priority_id = r.priority_id
+        LEFT JOIN md_scope_options scope ON scope.scope_id = r.scope_id
+        LEFT JOIN md_statuses st ON st.status_id = r.status_id
+        LEFT JOIN md_expected_outputs eo ON eo.expected_output_id = r.expected_output_id
+        LEFT JOIN md_platforms pl ON pl.platform_id = r.target_platform_id
+        GROUP BY r.request_id, bu.business_unit_name, pr.priority_name, scope.scope_name, st.status_name, eo.expected_output_name, pl.platform_name
+        ORDER BY r.created_at DESC
+        """
+    ).fetchall()
+    return [serialize_initiative(row) for row in rows]
+
+
+def get_initiative_by_id(db: LakebaseConnection, request_id: str) -> dict:
+    row = db.execute(
+        """
+        SELECT
+          r.*,
+          bu.business_unit_name,
+          pr.priority_name,
+          scope.scope_name,
+          st.status_name,
+          eo.expected_output_name,
+          pl.platform_name,
+          COUNT(p.data_product_id) AS product_count,
+          CONCAT_WS(' ', r.request_id, r.request_number, r.initiative, r.business_decision, r.business_value, r.requester_name, r.requester_email, r.note) AS search_text
+        FROM governance_requests r
+        LEFT JOIN data_products p ON p.request_id = r.request_id
+        LEFT JOIN md_business_units bu ON bu.business_unit_id = r.business_unit_id
+        LEFT JOIN md_priorities pr ON pr.priority_id = r.priority_id
+        LEFT JOIN md_scope_options scope ON scope.scope_id = r.scope_id
+        LEFT JOIN md_statuses st ON st.status_id = r.status_id
+        LEFT JOIN md_expected_outputs eo ON eo.expected_output_id = r.expected_output_id
+        LEFT JOIN md_platforms pl ON pl.platform_id = r.target_platform_id
+        WHERE r.request_id = ?
+        GROUP BY r.request_id, bu.business_unit_name, pr.priority_name, scope.scope_name, st.status_name, eo.expected_output_name, pl.platform_name
+        """,
+        (request_id,),
+    ).fetchone()
+    if not row:
+        raise ValueError("initiative not found")
+    initiative = serialize_initiative(row)
+    initiative["products"] = get_products_for_request(db, request_id)
+    return initiative
+
+
+def get_products_for_request(db: LakebaseConnection, request_id: str) -> list[dict]:
+    rows = db.execute(request_overview_select_sql() + " WHERE p.request_id = ? ORDER BY p.created_at DESC", (request_id,)).fetchall()
     return [serialize_request(row) for row in rows]
 
 
@@ -468,14 +574,15 @@ def get_dashboard(db: LakebaseConnection) -> dict:
           SUM(CASE WHEN status_id IN ('in_review', 'in_progress') THEN 1 ELSE 0 END) AS in_review,
           SUM(CASE WHEN status_id = 'blocked' THEN 1 ELSE 0 END) AS blocked,
           SUM(CASE WHEN current_stage_id IN ('publish', 'operate') THEN 1 ELSE 0 END) AS live
-        FROM data_product_requests_new
+        FROM data_products
         """
     ).fetchone()
+    initiative_count = db.execute("SELECT COUNT(*) AS count FROM governance_requests").fetchone()
     stage_rows = dict_rows(
         db.execute(
             """
             SELECT current_stage_id AS stageId, COUNT(*) AS count
-            FROM data_product_requests_new
+            FROM data_products
             GROUP BY current_stage_id
             """
         ).fetchall()
@@ -484,13 +591,14 @@ def get_dashboard(db: LakebaseConnection) -> dict:
         db.execute(
             """
             SELECT status_id AS statusId, COUNT(*) AS count
-            FROM data_product_requests_new
+            FROM data_products
             GROUP BY status_id
             """
         ).fetchall()
     )
     return {
         "total": int(totals["total"] or 0),
+        "initiatives": int(initiative_count["count"] or 0),
         "inReview": int(totals["in_review"] or 0),
         "blocked": int(totals["blocked"] or 0),
         "live": int(totals["live"] or 0),
@@ -585,6 +693,7 @@ def get_master_data(db: LakebaseConnection) -> dict:
         "buildStatuses": dict_rows(db.execute("SELECT build_status_id AS id, build_status_name AS name FROM md_build_statuses ORDER BY build_status_name").fetchall()),
         "dataDomainOwners": [user for user in users if user["role_key"] == "data_domain_owner"],
         "domainDeliveryLeads": [user for user in users if user["role_key"] == "domain_delivery_lead"],
+        "hubOwners": [user for user in users if user["role_key"] == "hub_owner"],
         "lynxPms": [user for user in users if user["role_key"] == "lynx_pm"],
         "users": users,
     }
@@ -621,7 +730,7 @@ def master_data_counts(db: LakebaseConnection) -> dict:
         "scopeOptions": "md_scope_options",
         "buildStatuses": "md_build_statuses",
         "stageRequirements": "md_stage_requirements",
-        "requests": "data_product_requests_new",
+        "requests": "governance_requests",
     }
     counts = {}
     for key, table in tables.items():
@@ -650,7 +759,7 @@ def upsert_master_data_item(db: LakebaseConnection, collection: str, payload: di
                 raise ValueError("user email must use syngenta.com")
         elif payload_key == "roleKey":
             value = slug_id(value or "requester")
-            allowed_roles = {"requester", "admin", "data_domain_owner", "domain_delivery_lead", "lynx_pm"}
+            allowed_roles = {"requester", "admin", "data_domain_owner", "domain_delivery_lead", "hub_owner", "lynx_pm"}
             if value not in allowed_roles:
                 raise ValueError("roleKey is not valid")
         elif payload_key == "type":
@@ -805,6 +914,8 @@ def validate_requirement_answer(db: LakebaseConnection, requirement: dict, value
     key = requirement["requirement_key"]
     input_type = requirement["input_type"]
     master_type = requirement["master_data_type"]
+    if key == "domain_delivery_lead_user_id":
+        master_type = "hubOwners"
 
     if input_type == "checkbox":
         return "true" if value is True or str(value).strip().lower() == "true" else "false"
@@ -842,6 +953,9 @@ def validate_requirement_answer(db: LakebaseConnection, requirement: dict, value
         return ensure_user_role_reference(db, text_value, requirement["label"], "data_domain_owner")
     if master_type == "domainDeliveryLeads":
         return ensure_user_role_reference(db, text_value, requirement["label"], "domain_delivery_lead")
+    if master_type == "hubOwners":
+        label = "Hub Owner" if key == "domain_delivery_lead_user_id" else requirement["label"]
+        return ensure_user_role_reference(db, text_value, label, "hub_owner")
     if master_type == "lynxPms":
         return ensure_user_role_reference(db, text_value, requirement["label"], "lynx_pm")
     if input_type == "textarea":
@@ -852,16 +966,28 @@ def validate_requirement_answer(db: LakebaseConnection, requirement: dict, value
 def request_select_sql() -> str:
     return """
         SELECT
-          r.*,
-          COALESCE(d.domain_name, NULLIF(r.lead_domain_id, ''), 'Unassigned') AS domain_name,
+          p.*,
+          r.request_number,
+          r.initiative,
+          r.business_decision,
+          r.business_value,
+          r.business_unit_id,
+          r.scope_id,
+          r.requester_name,
+          r.requester_email,
+          r.expected_date,
+          r.additional_comments,
+          r.priority_id,
+          r.request_id AS initiative_request_id,
+          COALESCE(d.domain_name, NULLIF(p.lead_domain_id, ''), 'Unassigned') AS domain_name,
           bu.business_unit_name,
-          COALESCE(pt.product_type_name, NULLIF(r.product_type_id, ''), 'Unassigned') AS product_type_name,
+          COALESCE(pt.product_type_name, NULLIF(p.product_type_id, ''), 'Unassigned') AS product_type_name,
           eo.expected_output_name,
-          COALESCE(p.platform_name, NULLIF(r.target_platform_id, ''), 'Unassigned') AS platform_name,
+          COALESCE(pl.platform_name, NULLIF(p.target_platform_id, ''), 'Unassigned') AS platform_name,
           COALESCE(pr.priority_name, NULLIF(r.priority_id, ''), 'Unassigned') AS priority_name,
-          COALESCE(s.stage_name, NULLIF(r.current_stage_id, ''), 'Unassigned') AS stage_name,
+          COALESCE(s.stage_name, NULLIF(p.current_stage_id, ''), 'Unassigned') AS stage_name,
           s.stage_number,
-          COALESCE(st.status_name, NULLIF(r.status_id, ''), 'Unassigned') AS status_name,
+          COALESCE(st.status_name, NULLIF(p.status_id, ''), 'Unassigned') AS status_name,
           scope.scope_name,
           sub.subdomain_name,
           sub.domain_id AS subdomain_domain_id,
@@ -874,46 +1000,52 @@ def request_select_sql() -> str:
           bs.build_status_name,
           CONCAT_WS(
             ' ',
-            r.request_id,
             r.request_number,
-            r.title,
-            r.description,
-            r.data_product_owner,
+            r.request_id,
             r.initiative,
+            r.business_decision,
             r.business_value,
             r.expected_date,
-            r.delivery_date,
-            CAST(r.effort AS TEXT),
-            r.jira_epic_id,
-            r.jira_link,
-            r.alation_link,
             r.additional_comments,
+            r.requester_name,
+            r.requester_email,
+            p.data_product_id,
+            p.data_product_number,
+            p.title,
+            p.description,
+            p.data_product_owner,
+            p.delivery_date,
+            CAST(p.effort AS TEXT),
+            p.jira_epic_id,
+            p.jira_link,
+            p.alation_link,
             r.status_change_reason,
             r.last_status_change_date,
             r.last_status_changed_by,
-            r.note,
-            r.product_type_id,
-            r.target_platform_id,
+            p.status_change_reason,
+            p.last_status_change_date,
+            p.last_status_changed_by,
+            p.note,
+            p.product_type_id,
+            p.target_platform_id,
             r.priority_id,
-            r.lead_domain_id,
+            p.lead_domain_id,
             r.business_unit_id,
             r.scope_id,
-            r.requester_name,
-            r.requester_email,
-            r.delivery_lead,
-            r.current_stage_id,
-            r.status_id,
-            r.lead_subdomain_id,
-            r.data_domain_owner_user_id,
-            r.source_system_id,
-            r.domain_delivery_lead_user_id,
-            r.lynx_pm_user_id,
-            r.build_status_id,
+            p.delivery_lead,
+            p.current_stage_id,
+            p.status_id,
+            p.lead_subdomain_id,
+            p.data_domain_owner_user_id,
+            p.source_system_id,
+            p.domain_delivery_lead_user_id,
+            p.lynx_pm_user_id,
+            p.build_status_id,
             d.domain_name,
             bu.business_unit_name,
             pt.product_type_name,
             eo.expected_output_name,
-            p.platform_name,
+            pl.platform_name,
             pr.priority_name,
             s.stage_name,
             st.status_name,
@@ -931,9 +1063,9 @@ def request_select_sql() -> str:
             bs.build_status_name,
             (
               SELECT STRING_AGG(CONCAT_WS(' ', req.label, req.requirement_key, ans.answer_value), ' ')
-              FROM request_stage_answers ans
+              FROM product_stage_answers ans
               LEFT JOIN md_stage_requirements req ON req.requirement_id = ans.requirement_id
-              WHERE ans.request_id = r.request_id
+              WHERE ans.data_product_id = p.data_product_id
             ),
             (
               SELECT STRING_AGG(
@@ -950,37 +1082,38 @@ def request_select_sql() -> str:
                 ),
                 ' '
               )
-              FROM request_timeline t
-              WHERE t.request_id = r.request_id
+              FROM governance_timeline t
+              WHERE t.data_product_id = p.data_product_id
             )
           ) AS search_text,
           COALESCE(
             (
               SELECT MAX(t.created_at)
-              FROM request_timeline t
-              WHERE t.request_id = r.request_id
+              FROM governance_timeline t
+              WHERE t.data_product_id = p.data_product_id
                 AND t.event_type = 'stage_advanced'
-                AND t.to_stage_id = r.current_stage_id
+                AND t.to_stage_id = p.current_stage_id
             ),
-            r.created_at
+            p.created_at
           ) AS current_stage_entered_at
-        FROM data_product_requests_new r
-        LEFT JOIN md_domains d ON d.domain_id = r.lead_domain_id
+        FROM data_products p
+        JOIN governance_requests r ON r.request_id = p.request_id
+        LEFT JOIN md_domains d ON d.domain_id = p.lead_domain_id
         LEFT JOIN md_business_units bu ON bu.business_unit_id = r.business_unit_id
-        LEFT JOIN md_product_types pt ON pt.product_type_id = r.product_type_id
-        LEFT JOIN md_expected_outputs eo ON eo.expected_output_id = r.expected_output_id
-        LEFT JOIN md_platforms p ON p.platform_id = r.target_platform_id
+        LEFT JOIN md_product_types pt ON pt.product_type_id = p.product_type_id
+        LEFT JOIN md_expected_outputs eo ON eo.expected_output_id = p.expected_output_id
+        LEFT JOIN md_platforms pl ON pl.platform_id = p.target_platform_id
         LEFT JOIN md_priorities pr ON pr.priority_id = r.priority_id
-        LEFT JOIN md_stages s ON s.stage_id = r.current_stage_id
-        LEFT JOIN md_statuses st ON st.status_id = r.status_id
+        LEFT JOIN md_stages s ON s.stage_id = p.current_stage_id
+        LEFT JOIN md_statuses st ON st.status_id = p.status_id
         LEFT JOIN md_scope_options scope ON scope.scope_id = r.scope_id
-        LEFT JOIN md_subdomains sub ON sub.subdomain_id = r.lead_subdomain_id
-        LEFT JOIN md_users ddo ON ddo.user_id = r.data_domain_owner_user_id
-        LEFT JOIN md_source_systems src ON src.source_system_id = r.source_system_id
-        LEFT JOIN md_users dle ON dle.user_id = r.delivery_lead
-        LEFT JOIN md_users ddl ON ddl.user_id = r.domain_delivery_lead_user_id
-        LEFT JOIN md_users lpm ON lpm.user_id = r.lynx_pm_user_id
-        LEFT JOIN md_build_statuses bs ON bs.build_status_id = r.build_status_id
+        LEFT JOIN md_subdomains sub ON sub.subdomain_id = p.lead_subdomain_id
+        LEFT JOIN md_users ddo ON ddo.user_id = p.data_domain_owner_user_id
+        LEFT JOIN md_source_systems src ON src.source_system_id = p.source_system_id
+        LEFT JOIN md_users dle ON dle.user_id = p.delivery_lead
+        LEFT JOIN md_users ddl ON ddl.user_id = p.domain_delivery_lead_user_id
+        LEFT JOIN md_users lpm ON lpm.user_id = p.lynx_pm_user_id
+        LEFT JOIN md_build_statuses bs ON bs.build_status_id = p.build_status_id
     """
 
 
@@ -989,7 +1122,7 @@ def request_overview_select_sql() -> str:
 
 
 def get_request_by_id(db: LakebaseConnection, request_id: str) -> dict:
-    row = db.execute(request_select_sql() + " WHERE r.request_id = ?", (request_id,)).fetchone()
+    row = db.execute(request_select_sql() + " WHERE p.data_product_id = ?", (request_id,)).fetchone()
     if not row:
         raise ValueError("request not found")
     return serialize_request(row)
@@ -1019,10 +1152,10 @@ def get_workflow(db: LakebaseConnection, request_id: str) -> dict:
         db.execute(
             """
             SELECT t.*, s.stage_name, st.status_name
-            FROM request_timeline t
+            FROM governance_timeline t
             LEFT JOIN md_stages s ON s.stage_id = t.stage_id
             LEFT JOIN md_statuses st ON st.status_id = t.status_id
-            WHERE t.request_id = ?
+            WHERE t.data_product_id = ?
             ORDER BY t.created_at DESC
             """,
             (request_id,),
@@ -1049,28 +1182,31 @@ def get_stage_requirements(db: LakebaseConnection, request_id: str, stage_id: st
             WHEN 'data_product_owner' THEN COALESCE(r.data_product_owner, '')
             WHEN 'expected_output_id' THEN COALESCE(r.expected_output_id, '')
             WHEN 'target_platform_id' THEN r.target_platform_id
-            WHEN 'priority_id' THEN r.priority_id
-            WHEN 'scope_id' THEN COALESCE(r.scope_id, '')
-            WHEN 'business_decision' THEN COALESCE(r.description, '')
-            WHEN 'business_value' THEN COALESCE(r.business_value, '')
+            WHEN 'priority_id' THEN parent.priority_id
+            WHEN 'scope_id' THEN COALESCE(parent.scope_id, '')
+            WHEN 'business_decision' THEN COALESCE(parent.business_decision, '')
+            WHEN 'business_value' THEN COALESCE(parent.business_value, '')
             WHEN 'lead_domain_id' THEN r.lead_domain_id
             WHEN 'lead_subdomain_id' THEN COALESCE(r.lead_subdomain_id, '')
             WHEN 'delivery_date' THEN COALESCE(r.delivery_date, '')
             WHEN 'delivery_lead' THEN COALESCE(r.delivery_lead, '')
+            WHEN 'domain_delivery_lead_user_id' THEN COALESCE(r.domain_delivery_lead_user_id, '')
             WHEN 'effort' THEN {effort_expr}
             WHEN 'jira_epic_id' THEN COALESCE(r.jira_epic_id, '')
             WHEN 'jira_link' THEN COALESCE(r.jira_link, '')
             WHEN 'alation_link' THEN COALESCE(r.alation_link, '')
-            WHEN 'expected_date' THEN COALESCE(r.expected_date, '')
-            WHEN 'additional_comments' THEN COALESCE(r.additional_comments, '')
+            WHEN 'expected_date' THEN COALESCE(parent.expected_date, '')
+            WHEN 'additional_comments' THEN COALESCE(parent.additional_comments, '')
             ELSE COALESCE(ans.answer_value, '')
           END AS answer_value
         FROM md_stage_requirements req
-        JOIN data_product_requests_new r
-          ON r.request_id = ?
-        LEFT JOIN request_stage_answers ans
+        JOIN data_products r
+          ON r.data_product_id = ?
+        JOIN governance_requests parent
+          ON parent.request_id = r.request_id
+        LEFT JOIN product_stage_answers ans
           ON ans.requirement_id = req.requirement_id
-         AND ans.request_id = ?
+         AND ans.data_product_id = ?
         WHERE req.stage_id = ?
         ORDER BY req.sort_order
         """,
@@ -1118,9 +1254,9 @@ def save_workflow_answers(db: LakebaseConnection, request_id: str, payload: dict
         if normalize_log_value(old_value) != normalize_log_value(clean_value):
             changes.append(
                 {
-                    "label": requirement["label"],
+                    "label": "Hub Owner" if requirement["requirement_key"] == "domain_delivery_lead_user_id" else requirement["label"],
                     "input_type": requirement["input_type"],
-                    "master_data_type": requirement["master_data_type"],
+                    "master_data_type": "hubOwners" if requirement["requirement_key"] == "domain_delivery_lead_user_id" else requirement["master_data_type"],
                     "old": old_value,
                     "new": clean_value,
                 }
@@ -1132,10 +1268,12 @@ def save_workflow_answers(db: LakebaseConnection, request_id: str, payload: dict
     if status_id:
         status_id = ensure_reference(db, "md_statuses", "status_id", status_id, "status")
         current_status = workflow["request"].get("statusId")
-        db.execute("UPDATE data_product_requests_new SET status_id = ? WHERE request_id = ?", (status_id, request_id))
+        db.execute("UPDATE data_products SET status_id = ? WHERE data_product_id = ?", (status_id, request_id))
         if status_id != current_status:
             add_timeline(
                 db,
+                "product",
+                workflow["request"].get("initiativeRequestId"),
                 request_id,
                 "status_changed",
                 "Status updated",
@@ -1147,9 +1285,9 @@ def save_workflow_answers(db: LakebaseConnection, request_id: str, payload: dict
             )
 
     event_detail = describe_workflow_changes(db, changes)
-    add_timeline(db, request_id, "answers_saved", f"{stage['name']} saved", event_detail, stage_id=stage_id, status_id=status_id, created_by=actor, created_at=timestamp)
+    add_timeline(db, "product", workflow["request"].get("initiativeRequestId"), request_id, "answers_saved", f"{stage['name']} saved", event_detail, stage_id=stage_id, status_id=status_id, created_by=actor, created_at=timestamp)
     advanced = advance_if_complete(db, request_id, stage_id, timestamp)
-    db.execute("UPDATE data_product_requests_new SET updated_at = ? WHERE request_id = ?", (timestamp, request_id))
+    db.execute("UPDATE data_products SET updated_at = ? WHERE data_product_id = ?", (timestamp, request_id))
     result = get_workflow(db, request_id)
     result["advanced"] = advanced
     return result
@@ -1158,9 +1296,9 @@ def save_workflow_answers(db: LakebaseConnection, request_id: str, payload: dict
 def upsert_stage_answer(db: LakebaseConnection, request_id: str, requirement_id: str, value: str, timestamp: str) -> None:
     db.execute(
         """
-        INSERT INTO request_stage_answers (answer_id, request_id, requirement_id, answer_value, updated_at)
+        INSERT INTO product_stage_answers (answer_id, data_product_id, requirement_id, answer_value, updated_at)
         VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT(request_id, requirement_id)
+        ON CONFLICT(data_product_id, requirement_id)
         DO UPDATE SET answer_value = excluded.answer_value, updated_at = excluded.updated_at
         """,
         (str(uuid.uuid4()), request_id, requirement_id, value, timestamp),
@@ -1204,6 +1342,7 @@ def format_answer_for_log(db: LakebaseConnection, requirement: dict, value: obje
         "buildStatuses": ("md_build_statuses", "build_status_id", "build_status_name"),
         "dataDomainOwners": ("md_users", "user_id", "display_name"),
         "domainDeliveryLeads": ("md_users", "user_id", "display_name"),
+        "hubOwners": ("md_users", "user_id", "display_name"),
         "lynxPms": ("md_users", "user_id", "display_name"),
     }.get(master_type)
     if lookup:
@@ -1238,23 +1377,25 @@ def save_request_status(db: LakebaseConnection, request_id: str, payload: dict) 
     if not status_id:
         raise ValueError("statusId is required")
     status_id = ensure_reference(db, "md_statuses", "status_id", status_id, "status")
-    current = db.execute("SELECT current_stage_id FROM data_product_requests_new WHERE request_id = ?", (request_id,)).fetchone()
+    current = db.execute("SELECT request_id, current_stage_id FROM data_products WHERE data_product_id = ?", (request_id,)).fetchone()
     if not current:
         raise ValueError("request not found")
     db.execute(
         """
-        UPDATE data_product_requests_new
+        UPDATE data_products
         SET status_id = ?,
             status_change_reason = ?,
             last_status_change_date = ?,
             last_status_changed_by = ?,
             updated_at = ?
-        WHERE request_id = ?
+        WHERE data_product_id = ?
         """,
         (status_id, reason, timestamp, changed_by, timestamp, request_id),
     )
     add_timeline(
         db,
+        "product",
+        current["request_id"],
         request_id,
         "status_changed",
         "Status updated",
@@ -1267,16 +1408,58 @@ def save_request_status(db: LakebaseConnection, request_id: str, payload: dict) 
     return get_workflow(db, request_id)
 
 
+def save_initiative_status(db: LakebaseConnection, request_id: str, payload: dict) -> dict:
+    timestamp = now()
+    status_id = payload.get("statusId")
+    reason = str(payload.get("statusChangeReason") or "").strip()
+    changed_by = clean_email(payload.get("updatedBy"), "updated by", required=False) or "system"
+    if not status_id:
+        raise ValueError("statusId is required")
+    status_id = ensure_reference(db, "md_statuses", "status_id", status_id, "status")
+    current = db.execute("SELECT status_id FROM governance_requests WHERE request_id = ?", (request_id,)).fetchone()
+    if not current:
+        raise ValueError("initiative not found")
+    db.execute(
+        """
+        UPDATE governance_requests
+        SET status_id = ?,
+            status_change_reason = ?,
+            last_status_change_date = ?,
+            last_status_changed_by = ?,
+            updated_at = ?
+        WHERE request_id = ?
+        """,
+        (status_id, reason, timestamp, changed_by, timestamp, request_id),
+    )
+    add_timeline(
+        db,
+        "request",
+        request_id,
+        None,
+        "status_changed",
+        "Initiative status updated",
+        f"Status changed from {format_status_for_log(db, current['status_id'])} to {format_status_for_log(db, status_id)}." + (f" Reason: {reason}" if reason else ""),
+        status_id=status_id,
+        created_by=changed_by,
+        created_at=timestamp,
+    )
+    return get_initiative_by_id(db, request_id)
+
+
 def update_structured_field(db: LakebaseConnection, request_id: str, key: str, value: str) -> None:
+    parent_field_map = {
+        "priority_id": "priority_id",
+        "scope_id": "scope_id",
+        "business_decision": "business_decision",
+        "business_value": "business_value",
+        "expected_date": "expected_date",
+        "additional_comments": "additional_comments",
+    }
     field_map = {
         "product_type_id": "product_type_id",
         "data_product_owner": "data_product_owner",
         "expected_output_id": "expected_output_id",
         "target_platform_id": "target_platform_id",
-        "priority_id": "priority_id",
-        "scope_id": "scope_id",
-        "business_decision": "description",
-        "business_value": "business_value",
         "lead_domain_id": "lead_domain_id",
         "lead_subdomain_id": "lead_subdomain_id",
         "delivery_date": "delivery_date",
@@ -1290,10 +1473,8 @@ def update_structured_field(db: LakebaseConnection, request_id: str, key: str, v
         "domain_delivery_lead_user_id": "domain_delivery_lead_user_id",
         "lynx_pm_user_id": "lynx_pm_user_id",
         "build_status_id": "build_status_id",
-        "expected_date": "expected_date",
-        "additional_comments": "additional_comments",
     }
-    column = field_map.get(key)
+    column = field_map.get(key) or parent_field_map.get(key)
     if not column:
         return
 
@@ -1335,7 +1516,7 @@ def update_structured_field(db: LakebaseConnection, request_id: str, key: str, v
     elif key == "source_system_id":
         stored_value = ensure_reference(db, "md_source_systems", "source_system_id", value, "source system", required=False) or None
     elif key == "domain_delivery_lead_user_id":
-        stored_value = ensure_user_role_reference(db, value, "Domain Delivery Lead", "domain_delivery_lead", required=False) or None
+        stored_value = ensure_user_role_reference(db, value, "Hub Owner", "hub_owner", required=False) or None
     elif key == "lynx_pm_user_id":
         stored_value = ensure_user_role_reference(db, value, "Lynx PM", "lynx_pm", required=False) or None
     elif key == "build_status_id":
@@ -1345,16 +1526,27 @@ def update_structured_field(db: LakebaseConnection, request_id: str, key: str, v
     elif key == "additional_comments":
         stored_value = clean_text(value, "additional comments", max_length=MAX_TEXTAREA_LENGTH) or None
 
-    db.execute(f"UPDATE data_product_requests_new SET {column} = ? WHERE request_id = ?", (stored_value, request_id))
+    if key in parent_field_map:
+        db.execute(
+            f"""
+            UPDATE governance_requests
+            SET {column} = ?
+            WHERE request_id = (SELECT request_id FROM data_products WHERE data_product_id = ?)
+            """,
+            (stored_value, request_id),
+        )
+        return
+
+    db.execute(f"UPDATE data_products SET {column} = ? WHERE data_product_id = ?", (stored_value, request_id))
 
 
 def reconcile_domain_subdomain(db: LakebaseConnection, request_id: str) -> None:
     row = db.execute(
         """
         SELECT r.lead_domain_id, r.lead_subdomain_id, s.domain_id AS subdomain_domain_id
-        FROM data_product_requests_new r
+        FROM data_products r
         LEFT JOIN md_subdomains s ON s.subdomain_id = r.lead_subdomain_id
-        WHERE r.request_id = ?
+        WHERE r.data_product_id = ?
         """,
         (request_id,),
     ).fetchone()
@@ -1362,11 +1554,11 @@ def reconcile_domain_subdomain(db: LakebaseConnection, request_id: str) -> None:
         return
     if row["lead_domain_id"] == row["subdomain_domain_id"]:
         return
-    db.execute("UPDATE data_product_requests_new SET lead_subdomain_id = NULL WHERE request_id = ?", (request_id,))
+    db.execute("UPDATE data_products SET lead_subdomain_id = NULL WHERE data_product_id = ?", (request_id,))
     db.execute(
         """
-        DELETE FROM request_stage_answers
-        WHERE request_id = ?
+        DELETE FROM product_stage_answers
+        WHERE data_product_id = ?
           AND requirement_id IN ('reuse_domain_lead_subdomain_id')
         """,
         (request_id,),
@@ -1376,10 +1568,10 @@ def reconcile_domain_subdomain(db: LakebaseConnection, request_id: str) -> None:
 def advance_if_complete(db: LakebaseConnection, request_id: str, saved_stage_id: str, timestamp: str) -> bool:
     current = db.execute(
         """
-        SELECT r.current_stage_id, s.stage_number
-        FROM data_product_requests_new r
+        SELECT r.request_id, r.current_stage_id, s.stage_number
+        FROM data_products r
         JOIN md_stages s ON s.stage_id = r.current_stage_id
-        WHERE r.request_id = ?
+        WHERE r.data_product_id = ?
         """,
         (request_id,),
     ).fetchone()
@@ -1396,26 +1588,28 @@ def advance_if_complete(db: LakebaseConnection, request_id: str, saved_stage_id:
         (current["stage_number"],),
     ).fetchone()
     if not next_stage:
-        db.execute("UPDATE data_product_requests_new SET status_id = 'operating' WHERE request_id = ?", (request_id,))
-        add_timeline(db, request_id, "completed", "Workflow completed", "All stages are complete.", stage_id=saved_stage_id, status_id="operating", created_by="admin", created_at=timestamp)
+        db.execute("UPDATE data_products SET status_id = 'operating' WHERE data_product_id = ?", (request_id,))
+        add_timeline(db, "product", current["request_id"], request_id, "completed", "Workflow completed", "All stages are complete.", stage_id=saved_stage_id, status_id="operating", created_by="admin", created_at=timestamp)
         return False
 
     next_status = "operating" if next_stage["stage_id"] == "operate" else "in_review"
     db.execute(
         """
-        UPDATE data_product_requests_new
+        UPDATE data_products
         SET current_stage_id = ?, status_id = ?, note = 'Advanced automatically after required information was completed.'
-        WHERE request_id = ?
+        WHERE data_product_id = ?
         """,
         (next_stage["stage_id"], next_status, request_id),
     )
-    add_timeline(db, request_id, "stage_advanced", "Stage advanced", f"Advanced from {saved_stage_id} to {next_stage['stage_id']}.", stage_id=next_stage["stage_id"], from_stage_id=saved_stage_id, to_stage_id=next_stage["stage_id"], status_id=next_status, created_by="system", created_at=timestamp)
+    add_timeline(db, "product", current["request_id"], request_id, "stage_advanced", "Stage advanced", f"Advanced from {saved_stage_id} to {next_stage['stage_id']}.", stage_id=next_stage["stage_id"], from_stage_id=saved_stage_id, to_stage_id=next_stage["stage_id"], status_id=next_status, created_by="system", created_at=timestamp)
     return True
 
 
 def add_timeline(
     db: LakebaseConnection,
+    entity_type: str,
     request_id: str,
+    data_product_id: str | None,
     event_type: str,
     event_label: str,
     event_detail: str = "",
@@ -1428,13 +1622,13 @@ def add_timeline(
 ) -> None:
     db.execute(
         """
-        INSERT INTO request_timeline (
-          timeline_id, request_id, event_type, stage_id, from_stage_id, to_stage_id,
+        INSERT INTO governance_timeline (
+          timeline_id, entity_type, request_id, data_product_id, event_type, stage_id, from_stage_id, to_stage_id,
           status_id, event_label, event_detail, created_by, created_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (str(uuid.uuid4()), request_id, event_type, stage_id, from_stage_id, to_stage_id, status_id, event_label, event_detail, created_by or "system", created_at or now()),
+        (str(uuid.uuid4()), entity_type, request_id, data_product_id, event_type, stage_id, from_stage_id, to_stage_id, status_id, event_label, event_detail, created_by or "system", created_at or now()),
     )
 
 
@@ -1467,8 +1661,10 @@ def serialize_request(row: dict) -> dict:
     delivery_lead = row["delivery_lead"] or ""
     delivery_lead_name = row["delivery_lead_name"] or delivery_lead
     return {
-        "id": normalize_request_number(row["request_number"]),
-        "requestId": row["request_id"],
+        "id": normalize_request_number(row["data_product_number"]),
+        "requestId": row["data_product_id"],
+        "initiativeRequestId": row["initiative_request_id"],
+        "initiativeNumber": normalize_request_number(row["request_number"]),
         "title": row["title"],
         "description": row["description"] or "",
         "domain": row["domain_name"] or "Unassigned",
@@ -1509,10 +1705,48 @@ def serialize_request(row: dict) -> dict:
         "dataDomainOwner": row["data_domain_owner_name"] or "",
         "sourceSystem": row["source_system_name"] or "",
         "domainDeliveryLead": row["domain_delivery_lead_name"] or "",
+        "hubOwner": row["domain_delivery_lead_name"] or "",
         "lynxPm": row["lynx_pm_name"] or "",
         "buildStatus": row["build_status_name"] or "",
         "owner": row["data_domain_owner_name"] or row["requester_name"] or "Unassigned",
         "note": row["note"] or "",
+        "searchText": row["search_text"] or "",
+    }
+
+
+def serialize_initiative(row: dict) -> dict:
+    status_id = row["status_id"] or ""
+    return {
+        "id": normalize_request_number(row["request_number"]),
+        "requestId": row["request_id"],
+        "initiative": row["initiative"] or "",
+        "title": row["initiative"] or f"Initiative {normalize_request_number(row['request_number'])}",
+        "businessDecision": row["business_decision"] or "",
+        "description": row["business_decision"] or "",
+        "businessValue": row["business_value"] or "",
+        "businessUnit": row["business_unit_name"] or "",
+        "businessUnitId": row["business_unit_id"] or "",
+        "scope": row["scope_name"] or "",
+        "scopeId": row["scope_id"] or "",
+        "priority": row["priority_name"] or "",
+        "priorityId": row["priority_id"] or "",
+        "expectedOutput": row["expected_output_name"] or "",
+        "expectedOutputId": row["expected_output_id"] or "",
+        "platform": row["platform_name"] or "",
+        "platformId": row["target_platform_id"] or "",
+        "requester": row["requester_name"] or "",
+        "requesterEmail": row["requester_email"] or "",
+        "expectedDate": row["expected_date"] or "",
+        "additionalComments": row["additional_comments"] or "",
+        "status": row["status_name"] or status_id or "Unassigned",
+        "statusId": status_id,
+        "statusChangeReason": row["status_change_reason"] or "",
+        "lastStatusChangeDate": row["last_status_change_date"] or "",
+        "lastStatusChangedBy": row["last_status_changed_by"] or "",
+        "productCount": int(row["product_count"] or 0),
+        "note": row["note"] or "",
+        "createdAt": row["created_at"] or "",
+        "updatedAt": row["updated_at"] or "",
         "searchText": row["search_text"] or "",
     }
 
@@ -1583,6 +1817,15 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
                 with connect() as db:
                     self.send_json(get_requests(db))
                 return
+            if path == "/api/initiatives":
+                with connect() as db:
+                    self.send_json(get_initiatives(db))
+                return
+            if path.startswith("/api/initiatives/"):
+                request_id = path.split("/")[3]
+                with connect() as db:
+                    self.send_json(get_initiative_by_id(db, request_id))
+                return
             if path.startswith("/api/requests/") and path.endswith("/workflow"):
                 request_id = path.split("/")[3]
                 with connect() as db:
@@ -1636,6 +1879,17 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
                 self.send_json(result)
                 return
 
+            if path.startswith("/api/initiatives/") and path.endswith("/status"):
+                request_id = path.split("/")[3]
+                actor_email = request_user_email(self.headers)
+                payload["updatedBy"] = actor_email
+                with connect() as db:
+                    require_admin(db, actor_email)
+                    result = save_initiative_status(db, request_id, payload)
+                    db.commit()
+                self.send_json(result)
+                return
+
             if path.startswith("/api/master-data/"):
                 collection = path.split("/")[3]
                 actor_email = request_user_email(self.headers)
@@ -1646,6 +1900,16 @@ class GovernanceHandler(SimpleHTTPRequestHandler):
                     clear_master_data_cache()
                     master_data = get_cached_master_data(db)
                 self.send_json({"saved": result, "masterData": master_data}, status=201)
+                return
+
+            if path.startswith("/api/requests/") and path.endswith("/products"):
+                request_id = path.split("/")[3]
+                actor_email = request_user_email(self.headers)
+                with connect() as db:
+                    require_admin(db, actor_email)
+                    result = insert_product(db, request_id, payload, actor_email)
+                    db.commit()
+                self.send_json(result, status=201)
                 return
 
             if path != "/api/requests":

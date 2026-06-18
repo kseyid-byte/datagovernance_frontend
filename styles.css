@@ -547,8 +547,8 @@ button .spinner {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  min-height: 148px;
-  padding: 14px 10px 10px;
+  min-height: 96px;
+  padding: 12px 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel-soft);
@@ -578,15 +578,6 @@ button .spinner {
   font-size: 12px;
   font-weight: 900;
   line-height: 1.16;
-}
-
-.rail-card-desc {
-  display: block;
-  margin-top: 8px;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1.28;
 }
 
 .rail-card-count {
@@ -633,6 +624,12 @@ button .spinner {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 10px 11px;
+}
+
+.search-wrap.compact input {
+  width: 190px;
+  padding: 8px 10px;
+  font-size: 13px;
 }
 
 .table-wrap {
@@ -689,11 +686,106 @@ th {
   outline: none;
 }
 
+.expand-products-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 82px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: white;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.expand-products-button:hover,
+.expand-products-button:focus-visible {
+  border-color: var(--accent);
+  background: #f8fafc;
+  outline: none;
+}
+
+.expand-products-button span {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.initiative-products-row td {
+  padding: 0 10px 8px 30px;
+  border-bottom: 1px solid var(--line);
+  background: white;
+}
+
+.initiative-products-list {
+  display: grid;
+  gap: 0;
+  padding: 0;
+}
+
+.initiative-product-item {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.8fr) minmax(120px, 0.9fr) minmax(90px, 0.6fr) minmax(110px, 0.7fr);
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 0 6px 12px;
+  border: 0;
+  border-left: 2px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  font-size: 12px;
+}
+
+.initiative-product-item + .initiative-product-item {
+  border-top: 1px solid #edf2f7;
+}
+
+button.initiative-product-item {
+  cursor: pointer;
+}
+
+button.initiative-product-item:hover,
+button.initiative-product-item:focus-visible {
+  border-left-color: var(--accent);
+  background: #f8fafc;
+  outline: none;
+}
+
+.initiative-product-item strong,
+.initiative-product-item small {
+  display: block;
+}
+
+.initiative-product-item small,
+.initiative-products-empty {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.initiative-product-item .status {
+  justify-self: center;
+  justify-content: center;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.initiative-products-empty {
+  padding: 6px 0 6px 12px;
+  border-left: 2px solid var(--line);
+}
+
 .column-filter-row th {
   padding-top: 0;
 }
 
-.column-filter {
+.column-filter,
+.initiative-column-filter {
   min-width: 120px;
   padding: 7px 8px;
   border-radius: 6px;
@@ -712,15 +804,50 @@ th {
   font-weight: 800;
 }
 
+.status.new {
+  background: #f1f5f9;
+  color: #334155;
+}
+
+.status.not-started {
+  background: #f8fafc;
+  color: #475569;
+}
+
+.status.in-review {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+
+.status.in-progress {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
 .status.blocked {
   background: #fee2e2;
   color: var(--danger);
+}
+
+.status.on-hold {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.status.completed {
+  background: #ccfbf1;
+  color: #0f766e;
 }
 
 .status.operating,
 .status.ready {
   background: #dcfce7;
   color: var(--success);
+}
+
+.status.ready {
+  background: #e0f2fe;
+  color: #0369a1;
 }
 
 .request-layout {
@@ -843,20 +970,22 @@ textarea {
 }
 
 .admin-left-pane {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 18px;
   grid-column: 1;
   position: sticky;
   top: 18px;
-}
-
-.admin-timeline {
-  max-height: 460px;
-  overflow: auto;
+  align-self: start;
+  max-height: calc(100vh - 36px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
 }
 
 .admin-product-card {
-  margin-top: 16px;
+  margin-top: 10px;
   padding: 14px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -868,6 +997,57 @@ textarea {
   margin-bottom: 6px;
 }
 
+.product-link-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  margin-bottom: 14px;
+}
+
+.product-select-line {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 11px 12px;
+  background: white;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.product-select-line:hover,
+.product-select-line:focus-visible {
+  border-color: var(--accent);
+  background: #f8fafc;
+  outline: none;
+}
+
+.product-select-line.active {
+  border-color: #f59e0b;
+  background: #fffbeb;
+  box-shadow: inset 4px 0 0 #f59e0b;
+}
+
+.product-select-line:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.product-select-line strong,
+.product-select-line span {
+  display: block;
+}
+
+.product-select-line span {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .admin-product-card span {
   display: block;
   color: var(--muted);
@@ -877,6 +1057,63 @@ textarea {
 
 .admin-product-card.is-loading {
   min-height: 86px;
+}
+
+.admin-collapse {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+}
+
+.admin-collapse + .admin-collapse {
+  margin-top: 10px;
+}
+
+.admin-collapse summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  cursor: pointer;
+  font-weight: 900;
+  list-style: none;
+}
+
+.admin-collapse summary::-webkit-details-marker {
+  display: none;
+}
+
+.admin-collapse summary::after {
+  content: "+";
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.admin-collapse[open] summary {
+  border-bottom: 1px solid var(--line);
+}
+
+.admin-collapse[open] summary::after {
+  content: "-";
+}
+
+.admin-collapse > .admin-product-card,
+.admin-collapse > .master-data-form,
+.admin-collapse > .timeline-list {
+  margin: 12px;
+}
+
+.admin-collapse > .master-data-form p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.admin-collapse > .timeline-list {
+  max-height: 360px;
+  overflow: auto;
 }
 
 .admin-status-field {
@@ -1100,11 +1337,7 @@ textarea {
 
   .rail-card {
     padding: 10px 8px;
-    min-height: 158px;
-  }
-
-  .rail-card-desc {
-    font-size: 10px;
+    min-height: 96px;
   }
 }
 
@@ -1133,6 +1366,9 @@ textarea {
 
   .admin-left-pane {
     position: static;
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
   }
 
   .rail {
@@ -1145,6 +1381,10 @@ textarea {
 
   .metric-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .initiative-product-item {
+    grid-template-columns: 1fr;
   }
 }
 

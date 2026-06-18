@@ -1,10 +1,13 @@
 let products = [];
+let initiatives = [];
 let masterData = { domains: [], stages: [] };
-let dashboard = { total: 0, inReview: 0, blocked: 0, live: 0, stageCounts: {}, statusCounts: {} };
+let dashboard = { total: 0, initiatives: 0, inReview: 0, blocked: 0, live: 0, stageCounts: {}, statusCounts: {} };
 let currentWorkflow = null;
 let activeStageId = "";
 let activeView = "overview";
 let activeWorkflowRequestId = "";
+let activeInitiativeId = "";
+const expandedInitiativeIds = new Set();
 let productsLoaded = false;
 let currentUser = {
   email: "",
@@ -25,9 +28,10 @@ const loadingStartedAt = {};
 const loadingClearTimers = {};
 const minimumLoadingMs = 450;
 const tableFilters = {};
+const initiativeTableFilters = {};
 const stageDescriptions = {
   intake: "Capture request, requester, priority, scope, and expected date.",
-  reuse_domain: "Assign lead domain, subdomain, delivery lead, data domain owner, domain delivery lead, and optional Lynx PM.",
+  reuse_domain: "Assign lead domain, subdomain, delivery lead, data domain owner, hub owner, and optional Lynx PM.",
   ownership: "Estimate delivery date, effort, Jira tracking, reuse check, and source system outputs.",
   requirements: "Confirm KPIs, definitions, grain, sources, CDEs, and DQ rules.",
   architecture_review: "Confirm design, security, and tooling are approved.",
@@ -72,7 +76,7 @@ const masterCollections = [
         name: "roleKey",
         label: "Role",
         type: "select",
-        options: ["requester", "admin", "data_domain_owner", "domain_delivery_lead", "lynx_pm"],
+        options: ["requester", "admin", "data_domain_owner", "domain_delivery_lead", "hub_owner", "lynx_pm"],
       },
     ],
   },
@@ -186,8 +190,9 @@ function updateLoadingIndicators() {
   document.querySelector(".table-wrap")?.classList.toggle("is-refreshing", loadingState.products && productsLoaded);
   document.querySelector(".table-wrap")?.setAttribute("aria-busy", loadingState.products ? "true" : "false");
 
-  const adminSelect = document.getElementById("adminProductSelect");
-  if (adminSelect) adminSelect.disabled = loadingState.workflow || loadingState.savingWorkflow;
+  document.querySelectorAll(".product-select-line").forEach((button) => {
+    button.disabled = loadingState.workflow || loadingState.savingWorkflow;
+  });
   document.getElementById("workflowFields")?.classList.toggle(
     "is-loading",
     loadingState.workflow || loadingState.savingWorkflow
@@ -220,6 +225,10 @@ async function loadProducts({ showLoading = true } = {}) {
   }
 }
 
+async function loadInitiatives() {
+  initiatives = await apiJson("/api/initiatives");
+}
+
 async function loadMasterData({ showLoading = true } = {}) {
   if (showLoading) setLoading("masterData", true);
   try {
@@ -246,7 +255,7 @@ async function refreshOverviewData() {
   setLoading("dashboard", true);
   setLoading("products", true);
   try {
-    await Promise.all([loadDashboard({ showLoading: false }), loadProducts({ showLoading: false })]);
+    await Promise.all([loadDashboard({ showLoading: false }), loadProducts({ showLoading: false }), loadInitiatives()]);
   } finally {
     setLoading("dashboard", false);
     setLoading("products", false);
@@ -279,11 +288,41 @@ function filteredProducts() {
     .split(/\s+/)
     .filter(Boolean);
   return products.filter((product) => {
-    const matchesStage = !activeStageId || product.stageId === activeStageId;
+    const matchesStage = stageMatchesProduct(product, activeStageId);
     const haystack = productSearchText(product);
     const matchesSearch = !searchTerms.length || searchTerms.every((term) => haystack.includes(term));
     return matchesStage && matchesSearch && matchesColumnFilters(product);
   });
+}
+
+function overviewSearchTerms() {
+  return (document.getElementById("searchInput")?.value.trim().toLowerCase() || "")
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function matchesOverviewSearch(record, searchTerms) {
+  if (!searchTerms.length) return true;
+  return searchTerms.every((term) => productSearchText(record).includes(term));
+}
+
+function filteredInitiatives() {
+  const searchTerms = overviewSearchTerms();
+  return initiatives.filter((initiative) => {
+    const haystack = initiativeSearchText(initiative);
+    const matchesSearch = !searchTerms.length || searchTerms.every((term) => haystack.includes(term));
+    const matchesStage =
+      !activeStageId || products.some((product) => product.initiativeRequestId === initiative.requestId && stageMatchesProduct(product, activeStageId));
+    return matchesSearch && matchesStage && matchesInitiativeColumnFilters(initiative);
+  });
+}
+
+function initiativeSearchText(initiative) {
+  const productText = products
+    .filter((product) => product.initiativeRequestId === initiative.requestId)
+    .map((product) => productSearchText(product))
+    .join(" ");
+  return `${productSearchText(initiative)} ${productText}`.toLowerCase();
 }
 
 function productSearchText(product) {
@@ -292,6 +331,13 @@ function productSearchText(product) {
     .map(([, value]) => String(value))
     .join(" ")
     .toLowerCase();
+}
+
+function stageMatchesProduct(product, stageId) {
+  if (!stageId) return true;
+  if (product.stageId === stageId) return true;
+  const stageName = stageNameById(stageId).toLowerCase();
+  return Boolean(stageName && String(product.stage || "").toLowerCase() === stageName);
 }
 
 function matchesColumnFilters(product) {
@@ -305,9 +351,17 @@ function matchesColumnFilters(product) {
   });
 }
 
+function matchesInitiativeColumnFilters(initiative) {
+  return Object.entries(initiativeTableFilters).every(([column, filter]) => {
+    if (!filter) return true;
+    const value = String(initiative[column] ?? "");
+    return value.toLowerCase().includes(filter);
+  });
+}
+
 function renderMetrics() {
   const total = Number.isFinite(dashboard.total) ? dashboard.total : products.length;
-  document.getElementById("metricTotal").textContent = total;
+  document.getElementById("metricTotal").textContent = `${total} / ${dashboard.initiatives ?? initiatives.length}`;
   document.getElementById("metricReview").textContent = Number.isFinite(dashboard.inReview)
     ? dashboard.inReview
     : products.filter((p) => ["in_review", "in_progress"].includes(p.statusId)).length;
@@ -343,7 +397,7 @@ function renderRail() {
   }
 
   stages.forEach((stage) => {
-    const count = dashboard.stageCounts?.[stage.id] ?? products.filter((product) => product.stageId === stage.id).length;
+    const count = dashboard.stageCounts?.[stage.id] ?? products.filter((product) => stageMatchesProduct(product, stage.id)).length;
     const percent = totalProducts ? Math.round((count / totalProducts) * 100) : 0;
     const button = document.createElement("button");
     button.type = "button";
@@ -352,7 +406,6 @@ function renderRail() {
     button.innerHTML = `
       <span class="rail-card-step">Stage ${stage.number}</span>
       <span class="rail-card-name">${escapeHtml(stage.name)}</span>
-      <span class="rail-card-desc">${escapeHtml(stageDescriptions[stage.id] || "")}</span>
       <span class="rail-card-count">${count} product${count === 1 ? "" : "s"} / ${percent}%</span>
     `;
     button.addEventListener("click", () => {
@@ -374,14 +427,19 @@ function progressPercent(stageId, stages = masterData.stages || []) {
 
 function renderTable() {
   const rows = document.getElementById("productRows");
+  if (!rows) return;
   const visible = filteredProducts();
   rows.innerHTML = "";
 
   const activeStageName = stageNameById(activeStageId);
-  document.getElementById("pipelineTitle").textContent = activeStageId ? `${activeStageName} products` : "Product pipeline";
-  document.getElementById("pipelineSubtitle").textContent = activeStageId
-    ? `${visible.length} product${visible.length === 1 ? "" : "s"} in this stage.`
-    : "All captured products across the governance process.";
+  const title = document.getElementById("pipelineTitle");
+  const subtitle = document.getElementById("pipelineSubtitle");
+  if (title) title.textContent = activeStageId ? `${activeStageName} products` : "Product pipeline";
+  if (subtitle) {
+    subtitle.textContent = activeStageId
+      ? `${visible.length} product${visible.length === 1 ? "" : "s"} in this stage.`
+      : "All captured products across the governance process.";
+  }
   if (loadingState.products && !productsLoaded) {
     rows.innerHTML = `<tr class="loading-row"><td colspan="8"><div class="inline-loading">${loadingMarkup("Loading product requests from Databricks...")}</div></td></tr>`;
     return;
@@ -420,6 +478,115 @@ function renderTable() {
   });
 }
 
+function renderInitiativeTable() {
+  const rows = document.getElementById("initiativeRows");
+  if (!rows) return;
+  const visible = filteredInitiatives();
+  rows.innerHTML = "";
+  if (loadingState.products && !productsLoaded) {
+    rows.innerHTML = `<tr class="loading-row"><td colspan="6"><div class="inline-loading">${loadingMarkup("Loading initiatives...")}</div></td></tr>`;
+    return;
+  }
+  if (!visible.length) {
+    rows.innerHTML = `<tr><td colspan="6">No initiatives match the current search.</td></tr>`;
+    return;
+  }
+  visible.forEach((initiative) => {
+    const isExpanded = expandedInitiativeIds.has(initiative.requestId);
+    const initiativeProducts = initiativeProductsForOverview(initiative);
+    const row = document.createElement("tr");
+    row.className = currentUser.canAdmin ? "clickable-row" : "";
+    if (currentUser.canAdmin) {
+      row.tabIndex = 0;
+      row.setAttribute("role", "button");
+      row.setAttribute("aria-label", `Open admin view for ${initiative.initiative || initiative.title}`);
+      row.addEventListener("click", () => openInitiativeAdmin(initiative.requestId));
+      row.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          openInitiativeAdmin(initiative.requestId);
+        }
+      });
+    }
+    row.innerHTML = `
+      <td><strong>${escapeHtml(initiative.initiative || initiative.title)}</strong><br><small>${escapeHtml(initiative.id)}</small></td>
+      <td>${escapeHtml(initiative.requester || "")}<br><small>${escapeHtml(initiative.requesterEmail || "")}</small></td>
+      <td>${escapeHtml(initiative.priority || "")}</td>
+      <td>${escapeHtml(initiative.scope || "")}</td>
+      <td>
+        <button class="expand-products-button" type="button" aria-expanded="${isExpanded ? "true" : "false"}">
+          <span>${isExpanded ? "Hide" : "Show"}</span>
+          <strong>${escapeHtml(initiativeProducts.length)} / ${escapeHtml(initiative.productCount ?? 0)}</strong>
+        </button>
+      </td>
+      <td><span class="status ${statusClass(initiative.status)}">${escapeHtml(initiative.status || "")}</span></td>
+    `;
+    row.querySelector(".expand-products-button")?.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (expandedInitiativeIds.has(initiative.requestId)) {
+        expandedInitiativeIds.delete(initiative.requestId);
+      } else {
+        expandedInitiativeIds.add(initiative.requestId);
+      }
+      renderInitiativeTable();
+    });
+    rows.appendChild(row);
+    if (isExpanded) rows.appendChild(renderInitiativeProductRow(initiative, initiativeProducts));
+  });
+}
+
+function initiativeProductsForOverview(initiative) {
+  const searchTerms = overviewSearchTerms();
+  const allForInitiative = products.filter((product) => {
+    const matchesInitiative = product.initiativeRequestId === initiative.requestId;
+    const matchesStage = stageMatchesProduct(product, activeStageId);
+    return matchesInitiative && matchesStage;
+  });
+  if (!searchTerms.length) return allForInitiative;
+
+  const productMatches = allForInitiative.filter((product) => matchesOverviewSearch(product, searchTerms));
+  return productMatches.length ? productMatches : allForInitiative;
+}
+
+function renderInitiativeProductRow(initiative, initiativeProducts = initiativeProductsForOverview(initiative)) {
+  const row = document.createElement("tr");
+  row.className = "initiative-products-row";
+  const cell = document.createElement("td");
+  cell.colSpan = 6;
+  if (!initiativeProducts.length) {
+    cell.innerHTML = `<div class="initiative-products-empty">No governed products${activeStageId ? " in the selected stage" : ""}.</div>`;
+    row.appendChild(cell);
+    return row;
+  }
+
+  const list = document.createElement("div");
+  list.className = "initiative-products-list";
+  initiativeProducts.forEach((product) => {
+    const item = document.createElement(currentUser.canAdmin ? "button" : "div");
+    item.className = `initiative-product-item${currentUser.canAdmin ? " clickable" : ""}`;
+    if (currentUser.canAdmin) {
+      item.type = "button";
+      item.addEventListener("click", (event) => {
+        event.stopPropagation();
+        openProductWorkflow(product.requestId);
+      });
+    }
+    item.innerHTML = `
+      <span>
+        <strong>${escapeHtml(product.title || "Untitled product")}</strong>
+        <small>${escapeHtml(product.id)} | ${escapeHtml(product.domain || "No domain")} | ${escapeHtml(product.owner || "No owner")}</small>
+      </span>
+      <span>${escapeHtml(product.stage || "No stage")}</span>
+      <span><strong>${escapeHtml(formatDaysInStage(product.daysInStage))}</strong></span>
+      <span class="status ${statusClass(product.status)}">${escapeHtml(product.status || "No status")}</span>
+    `;
+    list.appendChild(item);
+  });
+  cell.appendChild(list);
+  row.appendChild(cell);
+  return row;
+}
+
 function formatDaysInStage(days) {
   const numericDays = Number(days);
   if (!Number.isFinite(numericDays)) return "Not set";
@@ -427,9 +594,19 @@ function formatDaysInStage(days) {
   return numericDays === 1 ? "1 day" : `${numericDays} days`;
 }
 
+function openInitiativeAdmin(requestId) {
+  if (!currentUser.canAdmin) return;
+  activeInitiativeId = requestId;
+  activeWorkflowRequestId = "";
+  setView("admin");
+  scrollAdminToTop();
+}
+
 async function openProductWorkflow(requestId) {
   if (!currentUser.canAdmin) return;
   activeWorkflowRequestId = requestId;
+  const product = products.find((item) => item.requestId === requestId);
+  if (product?.initiativeRequestId) activeInitiativeId = product.initiativeRequestId;
   setView("admin");
   scrollAdminToTop();
 }
@@ -451,6 +628,7 @@ function render() {
   renderAccess();
   renderMetrics();
   renderRail();
+  renderInitiativeTable();
   renderTable();
   renderAdminOptions();
   if (activeView === "master-data") renderMasterData();
@@ -489,10 +667,13 @@ function scopeParentName(parentId) {
 }
 
 function populateRequestSelects() {
-  populateSelect("domainSelect", masterData.domains);
   populateSelect("businessUnitSelect", masterData.businessUnits);
-  populateSelect("productTypeSelect", masterData.productTypes);
+  populateSelect("expectedOutputSelect", masterData.expectedOutputs);
   populateSelect("platformSelect", masterData.platforms);
+  populateSelect("adminProductDomainSelect", masterData.domains);
+  populateSelect("adminProductExpectedOutputSelect", masterData.expectedOutputs);
+  populateSelect("adminProductTypeSelect", masterData.productTypes);
+  populateSelect("adminProductPlatformSelect", masterData.platforms);
   populateSelect("prioritySelect", masterData.priorities, "p2");
   populateSelect("scopeSelect", masterData.scopeOptions);
   const requesterEmail = document.querySelector('input[name="requesterEmail"]');
@@ -502,40 +683,110 @@ function populateRequestSelects() {
 }
 
 function renderAdminOptions() {
-  const select = document.getElementById("adminProductSelect");
-  if (!select) return;
-  const selected = select.value;
-  select.innerHTML = "";
-  products.forEach((product) => {
+  const initiativeSelect = document.getElementById("adminInitiativeSelect");
+  if (!initiativeSelect) return;
+  const selectedInitiative = activeInitiativeId || initiativeSelect.value;
+  initiativeSelect.innerHTML = "";
+  initiatives.forEach((initiative) => {
     const option = document.createElement("option");
-    option.value = product.requestId;
-    option.textContent = `${product.id} - ${product.title}`;
-    select.appendChild(option);
+    option.value = initiative.requestId;
+    option.textContent = `${initiative.id} - ${initiative.initiative || initiative.title} (${initiative.productCount || 0} products)`;
+    initiativeSelect.appendChild(option);
   });
-  if (selected && products.some((product) => product.requestId === selected)) {
-    select.value = selected;
+  if (selectedInitiative && initiatives.some((initiative) => initiative.requestId === selectedInitiative)) {
+    initiativeSelect.value = selectedInitiative;
   }
+  activeInitiativeId = initiativeSelect.value || initiatives[0]?.requestId || "";
+  renderAdminProductLinks();
+}
+
+function renderAdminProductLinks() {
+  const list = document.getElementById("adminProductLinks");
+  if (!list) return;
+  const initiativeProducts = products.filter((product) => product.initiativeRequestId === activeInitiativeId);
+  list.innerHTML = "";
+  if (!initiativeProducts.length) {
+    list.innerHTML = `<span class="help">No products under this initiative yet.</span>`;
+    return;
+  }
+  initiativeProducts.forEach((product) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `product-select-line${product.requestId === activeWorkflowRequestId ? " active" : ""}`;
+    button.innerHTML = `
+      <strong>${escapeHtml(product.title || "Untitled product")}</strong>
+      <span>${escapeHtml(product.id)} | ${escapeHtml(product.stage || "No stage")} | ${escapeHtml(product.status || "No status")}</span>
+    `;
+    button.addEventListener("click", () => {
+      activeWorkflowRequestId = product.requestId;
+      renderAdminProductLinks();
+      loadWorkflow(product.requestId).catch((error) => console.error("Failed to load workflow", error));
+    });
+    list.appendChild(button);
+  });
 }
 
 async function renderAdmin() {
   renderAdminOptions();
-  const select = document.getElementById("adminProductSelect");
   if (loadingState.products && !productsLoaded) {
     renderWorkflowLoading("Loading product list...");
     return;
   }
+  activeInitiativeId = activeInitiativeId || document.getElementById("adminInitiativeSelect")?.value || initiatives[0]?.requestId || "";
+  const initiativeSelect = document.getElementById("adminInitiativeSelect");
+  if (initiativeSelect && initiativeSelect.value !== activeInitiativeId) {
+    initiativeSelect.value = activeInitiativeId;
+  }
+  renderAdminInitiativeCard();
+  const initiativeProducts = products.filter((product) => product.initiativeRequestId === activeInitiativeId);
   const desiredRequestId =
-    activeWorkflowRequestId && products.some((product) => product.requestId === activeWorkflowRequestId)
+    activeWorkflowRequestId && initiativeProducts.some((product) => product.requestId === activeWorkflowRequestId)
       ? activeWorkflowRequestId
-      : select.value || products[0]?.requestId || "";
+      : initiativeProducts[0]?.requestId || "";
   if (!desiredRequestId) {
-    document.getElementById("adminProductCard").innerHTML = "No products available.";
-    document.getElementById("workflowFields").innerHTML = "";
+    activeWorkflowRequestId = "";
+    renderAdminProductLinks();
+    const selectedInitiative = initiatives.find((initiative) => initiative.requestId === activeInitiativeId);
+    document.getElementById("adminProductCard").innerHTML = selectedInitiative
+      ? `<strong>${escapeHtml(selectedInitiative.initiative)}</strong><span>No governed products have been added yet.</span>`
+      : "No initiatives available.";
+    document.getElementById("workflowFields").innerHTML = `<section class="stage-panel"><div class="empty-state">Add a product under this initiative to start governance.</div></section>`;
     document.getElementById("timelineList").innerHTML = "";
     return;
   }
-  select.value = desiredRequestId;
+  activeWorkflowRequestId = desiredRequestId;
+  renderAdminProductLinks();
   await loadWorkflow(desiredRequestId);
+}
+
+function renderAdminInitiativeCard() {
+  const card = document.getElementById("adminInitiativeCard");
+  if (!card) return;
+  const initiative = initiatives.find((item) => item.requestId === activeInitiativeId);
+  if (!initiative) {
+    card.innerHTML = `<span>No initiative selected.</span>`;
+    return;
+  }
+  card.innerHTML = `
+    <strong>${escapeHtml(initiative.initiative || initiative.title)}</strong>
+    <span>${escapeHtml(initiative.id)} | ${escapeHtml(initiative.businessUnit || "No BU")} | ${escapeHtml(initiative.priority || "No priority")}</span>
+    <span>Scope: ${escapeHtml(initiative.scope || "Not set")}</span>
+    <span>Expected output: ${escapeHtml(initiative.expectedOutput || "Not set")}</span>
+    <span>Target platform: ${escapeHtml(initiative.platform || "Not set")}</span>
+    <span>Products: ${escapeHtml(initiative.productCount ?? 0)}</span>
+    <label class="admin-status-field">
+      Request status
+      <select id="initiativeStatusSelect">
+        ${statusOptions(initiative.statusId)}
+      </select>
+    </label>
+    <label class="admin-status-field">
+      Request status change reason
+      <textarea id="initiativeStatusReason" rows="3" placeholder="Reason for request status change">${escapeHtml(initiative.statusChangeReason || "")}</textarea>
+    </label>
+    <button class="ghost-button full" id="saveInitiativeStatus" type="button">Save request status</button>
+  `;
+  document.getElementById("saveInitiativeStatus")?.addEventListener("click", handleInitiativeStatusSave);
 }
 
 async function loadWorkflow(requestId) {
@@ -691,15 +942,29 @@ function stageStatusText(stage) {
   return "Available";
 }
 
+function requirementLabel(requirement) {
+  if (requirement.requirement_key === "domain_delivery_lead_user_id") return "Hub Owner";
+  return requirement.label;
+}
+
+function requirementHelpText(requirement) {
+  if (requirement.requirement_key === "domain_delivery_lead_user_id") {
+    return "Select the hub owner accountable for the hub alignment.";
+  }
+  return requirement.help_text;
+}
+
 function renderRequirement(requirement, canSubmit) {
   const wrapper = document.createElement("label");
   wrapper.className = `requirement-field ${requirement.input_type}`;
   const value = requirement.answer_value || "";
+  const labelText = requirementLabel(requirement);
+  const helpText = requirementHelpText(requirement);
 
-  wrapper.appendChild(document.createTextNode(requirement.label));
+  wrapper.appendChild(document.createTextNode(labelText));
   const help = document.createElement("span");
   help.className = "help";
-  help.textContent = requirement.help_text;
+  help.textContent = helpText;
 
   if (requirement.input_type === "checkbox") {
     wrapper.textContent = "";
@@ -712,7 +977,7 @@ function renderRequirement(requirement, canSubmit) {
     input.checked = value === "true";
     input.disabled = !canSubmit;
     const label = document.createElement("span");
-    label.textContent = requirement.label;
+    label.textContent = labelText;
     row.append(input, label);
     wrapper.append(row, help);
     return wrapper;
@@ -767,6 +1032,9 @@ function renderRequirement(requirement, canSubmit) {
 }
 
 function optionsForRequirement(requirement) {
+  if (requirement.requirement_key === "domain_delivery_lead_user_id") {
+    return masterData.hubOwners || [];
+  }
   const options = masterData[requirement.master_data_type] || [];
   if (requirement.master_data_type !== "subdomains") return options;
   const domainId = currentWorkflow?.request?.domainId || "commercial";
@@ -885,6 +1153,34 @@ async function handleStatusSave() {
   } catch (error) {
     console.error("Failed to save status", error);
     const message = error.message || "Status could not be saved.";
+    showAppError(message);
+    document.getElementById("workflowMessage").textContent = message;
+  } finally {
+    setLoading("savingWorkflow", false);
+    setButtonBusy(saveButton, false);
+  }
+}
+
+async function handleInitiativeStatusSave() {
+  const requestId = document.getElementById("adminInitiativeSelect")?.value || activeInitiativeId;
+  if (!requestId) return;
+  clearAppError();
+  const statusId = document.getElementById("initiativeStatusSelect")?.value || "";
+  const statusChangeReason = document.getElementById("initiativeStatusReason")?.value || "";
+  const saveButton = document.getElementById("saveInitiativeStatus");
+  try {
+    setLoading("savingWorkflow", true);
+    setButtonBusy(saveButton, true, "Saving request status...");
+    const updated = await apiJson(
+      `/api/initiatives/${requestId}/status`,
+      jsonOptions("POST", { statusId, statusChangeReason })
+    );
+    initiatives = initiatives.map((initiative) => (initiative.requestId === requestId ? updated : initiative));
+    renderAdminInitiativeCard();
+    document.getElementById("workflowMessage").textContent = "Request status saved.";
+  } catch (error) {
+    console.error("Failed to save request status", error);
+    const message = error.message || "Request status could not be saved.";
     showAppError(message);
     document.getElementById("workflowMessage").textContent = message;
   } finally {
@@ -1039,11 +1335,14 @@ async function handleSubmit(event) {
   const submitButton = formElement.querySelector('button[type="submit"]');
   const form = new FormData(formElement);
   const payload = {
-    title: form.get("title"),
-    domain: form.get("domain"),
     businessUnit: form.get("businessUnit"),
     initiative: form.get("initiative"),
+    priority: form.get("priority"),
+    scope: form.get("scope"),
+    expectedOutput: form.get("expectedOutput"),
+    platform: form.get("platform"),
     description: form.get("description"),
+    businessValue: form.get("businessValue"),
     requester: form.get("requester"),
     requesterEmail: form.get("requesterEmail"),
     expectedDate: form.get("expectedDate"),
@@ -1053,16 +1352,56 @@ async function handleSubmit(event) {
     setLoading("submittingRequest", true);
     setButtonBusy(submitButton, true, "Submitting...");
     const created = await apiJson("/api/requests", jsonOptions("POST", payload));
-    products = [created, ...products];
+    initiatives = [created, ...initiatives];
     formElement.reset();
     populateRequestSelects();
-    activeStageId = "intake";
+    activeInitiativeId = created.requestId;
     setView("overview");
-    await loadDashboard();
+    await Promise.all([loadDashboard(), loadProducts({ showLoading: false })]);
     render();
   } catch (error) {
     console.error("Failed to create request", error);
     showAppError(error.message || "Request could not be saved.");
+  } finally {
+    setLoading("submittingRequest", false);
+    setButtonBusy(submitButton, false);
+  }
+}
+
+async function handleAdminProductSubmit(event) {
+  event.preventDefault();
+  clearAppError();
+  const formElement = event.currentTarget;
+  const submitButton = formElement.querySelector('button[type="submit"]');
+  const requestId = document.getElementById("adminInitiativeSelect")?.value || activeInitiativeId;
+  if (!requestId) {
+    showAppError("Select an initiative before adding a product.");
+    return;
+  }
+  const form = new FormData(formElement);
+  const payload = {
+    title: form.get("title"),
+    description: form.get("description"),
+    domain: form.get("domain"),
+    expectedOutput: form.get("expectedOutput"),
+    productType: form.get("productType"),
+    platform: form.get("platform"),
+    dataProductOwner: form.get("dataProductOwner"),
+  };
+  try {
+    setLoading("submittingRequest", true);
+    setButtonBusy(submitButton, true, "Adding product...");
+    const created = await apiJson(`/api/requests/${requestId}/products`, jsonOptions("POST", payload));
+    products = [created, ...products];
+    activeWorkflowRequestId = created.requestId;
+    formElement.reset();
+    populateRequestSelects();
+    await Promise.all([loadInitiatives(), loadDashboard({ showLoading: false })]);
+    render();
+    await loadWorkflow(created.requestId);
+  } catch (error) {
+    console.error("Failed to add product", error);
+    showAppError(error.message || "Product could not be added.");
   } finally {
     setLoading("submittingRequest", false);
     setButtonBusy(submitButton, false);
@@ -1113,7 +1452,18 @@ document.getElementById("sidebarToggle").addEventListener("click", () => {
   document.getElementById("sidebarToggle").setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
 });
 
-document.getElementById("searchInput").addEventListener("input", renderTable);
+function renderOverviewTables() {
+  renderInitiativeTable();
+  renderTable();
+}
+
+document.getElementById("searchInput").addEventListener("input", renderOverviewTables);
+document.querySelectorAll(".initiative-column-filter").forEach((input) => {
+  input.addEventListener("input", (event) => {
+    initiativeTableFilters[event.target.dataset.column] = event.target.value.trim().toLowerCase();
+    renderInitiativeTable();
+  });
+});
 document.querySelectorAll(".column-filter").forEach((input) => {
   input.addEventListener("input", (event) => {
     tableFilters[event.target.dataset.column] = event.target.value.trim().toLowerCase();
@@ -1121,10 +1471,11 @@ document.querySelectorAll(".column-filter").forEach((input) => {
   });
 });
 document.getElementById("requestForm").addEventListener("submit", handleSubmit);
-document.getElementById("adminProductSelect").addEventListener("change", (event) => {
-  loadWorkflow(event.target.value).catch((error) => {
-    console.error("Failed to load workflow", error);
-  });
+document.getElementById("adminProductForm").addEventListener("submit", handleAdminProductSubmit);
+document.getElementById("adminInitiativeSelect").addEventListener("change", (event) => {
+  activeInitiativeId = event.target.value;
+  activeWorkflowRequestId = "";
+  renderAdmin().catch((error) => console.error("Failed to render admin", error));
 });
 document.getElementById("masterDataCollection").addEventListener("change", renderMasterData);
 document.getElementById("masterDataForm").addEventListener("submit", handleMasterDataSubmit);
@@ -1140,7 +1491,7 @@ async function initializeApp() {
   render();
 
   try {
-    await Promise.all([loadMasterData({ showLoading: false }), loadDashboard({ showLoading: false })]);
+    await Promise.all([loadMasterData({ showLoading: false }), loadDashboard({ showLoading: false }), loadInitiatives()]);
   } finally {
     setLoading("masterData", false);
     setLoading("dashboard", false);
